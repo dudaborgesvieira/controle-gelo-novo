@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #fdf8fd;
+  --color-surface-dim: #ddd9de;
+  --color-surface-bright: #fdf8fd;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f7f2f8;
+  --color-surface-container: #f1ecf2;
+  --color-surface-container-high: #ebe7ec;
+  --color-surface-container-highest: #e5e1e7;
+  --color-on-surface: #1c1b1f;
+  --color-on-surface-variant: #424752;
+  --color-inverse-surface: #313034;
+  --color-inverse-on-surface: #f4eff5;
+  --color-outline: #727783;
+  --color-outline-variant: #c2c6d4;
+  --color-surface-tint: #005db5;
+  --color-primary: #00488d;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #005fb8;
+  --color-on-primary-container: #cadcff;
+  --color-inverse-primary: #a8c8ff;
+  --color-secondary: #6750a4;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #bba2fd;
+  --color-on-secondary-container: #4b3486;
+  --color-tertiary: #005412;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #1d6e25;
+  --color-on-tertiary-container: #9bee94;
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+  --color-primary-fixed: #d6e3ff;
+  --color-primary-fixed-dim: #a8c8ff;
+  --color-on-primary-fixed: #001b3d;
+  --color-on-primary-fixed-variant: #00468b;
+  --color-secondary-fixed: #e9ddff;
+  --color-secondary-fixed-dim: #cfbcff;
+  --color-on-secondary-fixed: #22005d;
+  --color-on-secondary-fixed-variant: #4f378a;
+  --color-tertiary-fixed: #a3f69c;
+  --color-tertiary-fixed-dim: #88d982;
+  --color-on-tertiary-fixed: #002204;
+  --color-on-tertiary-fixed-variant: #005312;
+  --color-background: #fdf8fd;
+  --color-on-background: #1c1b1f;
+  --color-surface-variant: #e5e1e7;
+}
+
+@import "tw-animate-css";
+
+/* Estilos adicionais para suporte a transições e microinterações */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-outline);
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Controle de Gelo",
+  "description": "Sistema completo para controle de movimentação de gelo de um posto de combustíveis, integrado com Firebase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
