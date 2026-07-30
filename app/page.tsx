@@ -9,6 +9,7 @@ import AdminDashboard from '../components/screens/dashboard/AdminDashboard';
 import { Movement } from '../core/entities/movement';
 import ReceiptModal from '../components/common/ReceiptModal';
 import { motion, AnimatePresence } from 'motion/react';
+import { isSameLocalDate, getLocalDateString } from '../lib/utils';
 
 type ScreenRoute = 'home' | 'sale' | 'loss' | 'access' | 'admin_dashboard';
 
@@ -322,7 +323,7 @@ export default function Home() {
                   {activeAttendants.map((att) => {
                     // Compute frentista metrics
                     const sales = movements
-                      .filter((m) => m.attendantId === att.id && m.type === 'venda' && m.date === new Date().toISOString().split('T')[0]);
+                      .filter((m) => m.attendantId === att.id && m.type === 'venda' && isSameLocalDate(m.date, m.timestamp));
                     const count = sales.reduce((acc, m) => acc + (m.quantity || 0), 0);
                     const val = sales.reduce((acc, m) => acc + (m.totalPrice || 0), 0);
 
@@ -385,7 +386,7 @@ export default function Home() {
                 <div className="space-y-2.5">
                   {(() => {
                     const filtered = selectedMovementDate
-                      ? movements.filter((m) => m.date === selectedMovementDate)
+                      ? movements.filter((m) => isSameLocalDate(m.date, m.timestamp, selectedMovementDate))
                       : movements.slice(0, 4);
 
                     if (filtered.length === 0) {
@@ -417,7 +418,7 @@ export default function Home() {
                                 {m.attendantName}: {iconMap.label} #{m.id.split('-')[1] || m.id}
                               </p>
                               <p className="text-[9px] text-outline font-medium">
-                                {m.date !== new Date().toISOString().split('T')[0] ? `${m.date.split('-').reverse().join('/')} ` : 'Hoje '} às {m.time} • {m.quantity} sacos {m.paymentMethod ? `• ${m.paymentMethod.toUpperCase()}` : ''}
+                                {!isSameLocalDate(m.date, m.timestamp) ? `${m.date.split('-').reverse().join('/')} ` : 'Hoje '} às {m.time} • {m.quantity} sacos {m.paymentMethod ? `• ${m.paymentMethod.toUpperCase()}` : ''}
                               </p>
                             </div>
                           </div>

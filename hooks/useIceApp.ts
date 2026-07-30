@@ -11,6 +11,7 @@ import { supabaseStorageService as storageService } from '../services/persistenc
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { syncEngine, ConnectionState } from '../services/sync/SyncEngine';
 import { exportDatabaseBackupToFile, importDatabaseBackupFromFile, getLastBackupTimestamp } from '../services/persistence/backupManager';
+import { getLocalDateString, isSameLocalDate } from '../lib/utils';
 
 export function useIceApp() {
   const [movements, setMovements] = useState<Movement[]>([]);
@@ -93,7 +94,7 @@ export function useIceApp() {
     if (!settings) return { success: false, message: 'Configurações não carregadas.' };
     if (!activeAttendant) return { success: false, message: 'Selecione um frentista antes de continuar.' };
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     
     // Create new movement representation
@@ -131,7 +132,7 @@ export function useIceApp() {
   ): { success: boolean; message: string; movement?: Movement } => {
     if (!settings) return { success: false, message: 'Configurações não carregadas.' };
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     const newMovement: Movement = {
@@ -267,9 +268,23 @@ export function useIceApp() {
 
   // Action: Update Settings
   const saveSettings = useCallback((newSettings: SystemSettings): void => {
-    storageService.saveSettings(newSettings);
-    setSettings(newSettings);
-  }, []);
+    // When saving settings, user enters target stock in newSettings.initialStock.
+    // Calculate net movements from active non-canceled movements so currentStock matches target
+    let netMovements = 0;
+    movements.forEach((m) => {
+      if (m.isCanceled || m.status === 'cancelado') return;
+      if (m.type === 'producao') netMovements += m.quantity;
+      else if (m.type === 'venda' || m.type === 'cortesia' || m.type === 'perda') netMovements -= m.quantity;
+    });
+
+    const settingsToSave: SystemSettings = {
+      ...newSettings,
+      initialStock: newSettings.initialStock - netMovements,
+    };
+
+    storageService.saveSettings(settingsToSave);
+    setSettings(settingsToSave);
+  }, [movements]);
 
   // Action: Reset All Data to Zero (for tests)
   const resetAllData = useCallback((): void => {
@@ -292,9 +307,7 @@ export function useIceApp() {
 
   // Compute dashboards statistics (Vendas de hoje, faturamento, cortesias, etc.)
   const dashboardStats = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    
-    const todayMovements = movements.filter(m => m.date === today);
+    const today = getLocalDateString();
     
     let salesValueToday = 0;
     let salesVolumeToday = 0;
@@ -327,7 +340,7 @@ export function useIceApp() {
     const attendantRanking: Record<string, { name: string; sales: number; quantity: number }> = {};
 
     movements.forEach((m) => {
-      const isToday = m.date === today;
+      const isToday = isSameLocalDate(m.date, m.timestamp, today);
       const isCanceled = m.isCanceled || m.status === 'cancelado';
 
       if (isCanceled) {

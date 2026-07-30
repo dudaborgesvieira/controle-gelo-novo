@@ -13,6 +13,7 @@ import { exportDatabaseBackupToFile, importDatabaseBackupFromFile } from '../../
 import { isSupabaseConfigured } from '../../../lib/supabaseClient';
 import { supabaseStorageService } from '../../../services/persistence/SupabaseStorageImpl';
 import ReceiptModal from '../../common/ReceiptModal';
+import { getLocalDateString, isSameLocalDate } from '../../../lib/utils';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -261,7 +262,7 @@ export default function AdminDashboard({
   const [adminProdObs, setAdminProdObs] = useState('');
 
   // Manual sale adjustment states
-  const [adjDate, setAdjDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [adjDate, setAdjDate] = useState<string>(() => getLocalDateString());
   const [adjQty, setAdjQty] = useState<number>(1);
   const [adjValue, setAdjValue] = useState<number>(settings.defaultIceBagPrice);
   const [adjPayment, setAdjPayment] = useState<PaymentMethod>('pix');
@@ -277,7 +278,17 @@ export default function AdminDashboard({
   };
 
   // Settings editing state
-  const [settingsForm, setSettingsForm] = useState<SystemSettings>({ ...settings });
+  const [settingsForm, setSettingsForm] = useState<SystemSettings>({
+    ...settings,
+    initialStock: currentStock,
+  });
+
+  // Sync settings form when currentStock changes
+  const [syncedStock, setSyncedStock] = useState(currentStock);
+  if (syncedStock !== currentStock) {
+    setSyncedStock(currentStock);
+    setSettingsForm((prev) => ({ ...prev, initialStock: currentStock }));
+  }
 
   // Senior Administrator Validation States
   const [showSeniorValidationModal, setShowSeniorValidationModal] = useState(false);
@@ -544,8 +555,8 @@ export default function AdminDashboard({
       today.setHours(0,0,0,0);
       
       if (filterPeriod === 'dia') {
-        const todayStr = today.toISOString().split('T')[0];
-        if (m.date !== todayStr) return false;
+        const todayStr = getLocalDateString();
+        if (!isSameLocalDate(m.date, m.timestamp, todayStr)) return false;
       } else if (filterPeriod === 'semana') {
         const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
         if (movDate < oneWeekAgo) return false;
@@ -623,10 +634,10 @@ export default function AdminDashboard({
       const movDate = m.date; // YYYY-MM-DD
       const today = new Date();
       today.setHours(0,0,0,0);
-      const todayStr = today.toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
 
       if (reportPeriod === 'dia') {
-        return movDate === todayStr;
+        return isSameLocalDate(m.date, m.timestamp, todayStr);
       } else if (reportPeriod === 'semana') {
         const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
         const oneWeekAgoStr = oneWeekAgo.toISOString().split('T')[0];
@@ -1923,12 +1934,13 @@ export default function AdminDashboard({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-on-surface-variant">Estoque Inicial (Configurado de Fábrica)</label>
+                <label className="text-xs font-bold text-on-surface-variant">Estoque Atual do Posto (Sacos de Gelo)</label>
+                <p className="text-[10px] text-outline font-medium">Informe a quantidade real em estoque. O sistema ajusta automaticamente para refletir o valor exato inserido.</p>
                 <input
                   id="settings-initial-stock-input"
                   type="number"
                   required
-                  className="w-full h-11 px-3 bg-surface-container rounded-xl text-sm"
+                  className="w-full h-11 px-3 bg-surface-container rounded-xl text-sm font-bold text-primary"
                   placeholder="0"
                   value={settingsForm.initialStock === 0 ? '' : settingsForm.initialStock}
                   onFocus={(e) => e.target.select()}

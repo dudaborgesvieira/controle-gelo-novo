@@ -67,6 +67,24 @@ export class SupabaseStorageImpl implements StorageInterface {
     };
   }
 
+  private mergeMovements(local: Movement[], remote: Movement[]): Movement[] {
+    const map = new Map<string, Movement>();
+    // Add remote movements
+    remote.forEach((m) => map.set(m.id, m));
+    // Overlay local movements so unsynced or updated local movements are preserved
+    local.forEach((m) => {
+      if (!map.has(m.id)) {
+        map.set(m.id, m);
+      } else {
+        const remoteM = map.get(m.id)!;
+        if (m.isCanceled || m.status === 'cancelado' || (m.timestamp && m.timestamp >= remoteM.timestamp)) {
+          map.set(m.id, m);
+        }
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => (b.timestamp > a.timestamp ? 1 : -1));
+  }
+
   getMovements(): Movement[] {
     const localData = this.localFallback.getMovements();
     if (!isSupabaseConfigured()) return localData;
@@ -86,9 +104,10 @@ export class SupabaseStorageImpl implements StorageInterface {
         }
         if (data && data.length > 0) {
           const remoteMovements = data.map((r) => this.mapDbToMovement(r));
-          // Store in localStorage cache
+          const currentLocal = this.localFallback.getMovements();
+          const merged = this.mergeMovements(currentLocal, remoteMovements);
           if (typeof window !== 'undefined') {
-            localStorage.setItem('controle_gelo_movements', JSON.stringify(remoteMovements));
+            localStorage.setItem('controle_gelo_movements', JSON.stringify(merged));
           }
         }
       });
@@ -110,11 +129,13 @@ export class SupabaseStorageImpl implements StorageInterface {
       return this.localFallback.getMovements();
     }
 
-    const movements = data.map((r) => this.mapDbToMovement(r));
+    const remoteMovements = data.map((r) => this.mapDbToMovement(r));
+    const currentLocal = this.localFallback.getMovements();
+    const merged = this.mergeMovements(currentLocal, remoteMovements);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('controle_gelo_movements', JSON.stringify(movements));
+      localStorage.setItem('controle_gelo_movements', JSON.stringify(merged));
     }
-    return movements;
+    return merged;
   }
 
   saveMovement(movement: Movement): void {
