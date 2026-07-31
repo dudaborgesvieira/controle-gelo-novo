@@ -8,7 +8,7 @@ import { calculateStock, StockCalculationResult } from '../core/usecases/calcula
 import { validateMovement } from '../core/usecases/validateMovement';
 import { storageService as localStorageService } from '../services/persistence/LocalStorageImpl';
 import { supabaseStorageService as storageService } from '../services/persistence/SupabaseStorageImpl';
-import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { isSupabaseConfigured, getSupabaseClient } from '../lib/supabaseClient';
 import { syncEngine, ConnectionState } from '../services/sync/SyncEngine';
 import { exportDatabaseBackupToFile, importDatabaseBackupFromFile, getLastBackupTimestamp } from '../services/persistence/backupManager';
 import { getLocalDateString, isSameLocalDate } from '../lib/utils';
@@ -28,7 +28,34 @@ export function useIceApp() {
   const [activeAttendant, setActiveAttendant] = useState<Attendant | null>(null);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
 
-  // Initial load
+  // Refresh remote data
+  const refreshRemoteData = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+    try {
+      const [mList, aList, sData] = await Promise.all([
+        storageService.fetchMovementsAsync(),
+        storageService.fetchAttendantsAsync(),
+        storageService.fetchSettingsAsync(),
+      ]);
+      if (mList && mList.length > 0) setMovements(mList);
+      if (aList && aList.length > 0) {
+        setAttendants(aList);
+        setActiveAttendant((prev) => {
+          if (prev) {
+            const found = aList.find((a) => a.id === prev.id);
+            if (found) return found;
+          }
+          const activeOnes = aList.filter((a) => a.isActive);
+          return activeOnes.length > 0 ? activeOnes[0] : null;
+        });
+      }
+      if (sData) setSettings(sData);
+    } catch (e) {
+      console.warn('Realtime refresh note:', e);
+    }
+  }, []);
+
+  // Initial load & sync subscriptions
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsSupabaseActive(isSupabaseConfigured());
@@ -44,33 +71,79 @@ export function useIceApp() {
       setLastBackupTime(getLastBackupTimestamp());
 
       // Set first active attendant if available
-      const activeOnes = loadedAttendants.filter(a => a.isActive);
+      const activeOnes = loadedAttendants.filter((a) => a.isActive);
       if (activeOnes.length > 0) {
         setActiveAttendant(activeOnes[0]);
       }
 
-      // If Supabase is configured, fetch latest remote data asynchronously
+      // Initial remote fetch
       if (isSupabaseConfigured()) {
-        storageService.fetchMovementsAsync().then((fetched) => {
-          if (fetched && fetched.length > 0) {
-            setMovements(fetched);
-          }
-        });
+        refreshRemoteData();
       }
     }, 0);
 
     // Subscribe to synchronization engine
-    const unsubscribe = syncEngine.subscribe((connState, syncing) => {
+    const unsubscribeSync = syncEngine.subscribe((connState, syncing) => {
       setConnectionState(connState);
       setIsSyncing(syncing);
       setIsSupabaseActive(isSupabaseConfigured());
     });
 
+    // Real-time Supabase Subscription
+    let realtimeChannel: any = null;
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        realtimeChannel = supabase
+          .channel('schema-db-changes')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'movements' },
+            () => refreshRemoteData()
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'attendants' },
+            () => refreshRemoteData()
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'settings' },
+            () => refreshRemoteData()
+          )
+          .subscribe();
+      } catch (err) {
+        console.warn('Supabase realtime channel error:', err);
+      }
+    }
+
+    // Polling interval for multi-device sync
+    const pollInterval = setInterval(() => {
+      if (isSupabaseConfigured() && navigator.onLine) {
+        refreshRemoteData();
+      }
+    }, 8000);
+
+    // Re-sync on focus/visibility
+    const handleFocus = () => {
+      if (isSupabaseConfigured() && navigator.onLine) {
+        refreshRemoteData();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('visibilitychange', handleFocus);
+
     return () => {
       clearTimeout(timer);
-      unsubscribe();
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('visibilitychange', handleFocus);
+      unsubscribeSync();
+      if (realtimeChannel && supabase) {
+        supabase.removeChannel(realtimeChannel);
+      }
     };
-  }, []);
+  }, [refreshRemoteData]);
 
 
 

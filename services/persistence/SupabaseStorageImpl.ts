@@ -8,14 +8,60 @@ import { getSupabaseClient, isSupabaseConfigured } from '../../lib/supabaseClien
 export class SupabaseStorageImpl implements StorageInterface {
   private localFallback = new LocalStorageImpl();
 
+  private isUuid(val: string | null | undefined): boolean {
+    if (!val || val === 'default') return false;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(val);
+  }
+
+  private stringToUuid(str: string): string {
+    if (!str || str === 'default') return crypto.randomUUID();
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    let hex = '';
+    for (let i = 0; i < str.length; i++) {
+      hex += str.charCodeAt(i).toString(16);
+    }
+    hex = (hex + Math.abs(hash).toString(16).repeat(8) + '0123456789abcdef').slice(0, 32);
+    const part1 = hex.slice(0, 8);
+    const part2 = hex.slice(8, 12);
+    const part3 = '4' + hex.slice(13, 16);
+    const part4 = 'a' + hex.slice(17, 20);
+    const part5 = hex.slice(20, 32);
+    return `${part1}-${part2}-${part3}-${part4}-${part5}`;
+  }
+
+  private toValidUuidOrNull(val: string | null | undefined): string | null {
+    if (!val || val === 'default' || val.trim() === '' || val === 'null' || val === 'undefined') {
+      return null;
+    }
+    if (this.isUuid(val)) {
+      return val;
+    }
+    return this.stringToUuid(val);
+  }
+
+  private toValidUuid(val: string | null | undefined): string {
+    if (!val || val === 'default' || val.trim() === '' || val === 'null' || val === 'undefined') {
+      return crypto.randomUUID();
+    }
+    if (this.isUuid(val)) {
+      return val;
+    }
+    return this.stringToUuid(val);
+  }
+
   private mapMovementToDb(m: Movement) {
     return {
-      id: m.id,
+      id: this.toValidUuid(m.id),
       type: m.type,
       quantity: m.quantity,
       unit_price: m.unitPrice ?? 0,
       total_price: m.totalPrice ?? 0,
-      attendant_id: m.attendantId || null,
+      attendant_id: this.toValidUuidOrNull(m.attendantId),
       attendant_name: m.attendantName,
       date: m.date,
       time: m.time,
@@ -27,7 +73,7 @@ export class SupabaseStorageImpl implements StorageInterface {
       is_canceled: Boolean(m.isCanceled || m.status === 'cancelado'),
       status: m.status || (m.isCanceled ? 'cancelado' : 'ativo'),
       canceled_at: m.canceledAt || null,
-      canceled_by: m.canceledBy || null,
+      canceled_by: this.toValidUuidOrNull(m.canceledBy),
       cancel_reason: m.cancelReason || null,
       created_at: m.timestamp || new Date().toISOString(),
     };
@@ -235,7 +281,7 @@ export class SupabaseStorageImpl implements StorageInterface {
     supabase
       .from('attendants')
       .upsert({
-        id: attendant.id,
+        id: this.toValidUuid(attendant.id),
         name: attendant.name,
         is_active: attendant.isActive ?? true,
         created_at: attendant.createdAt || new Date().toISOString(),
@@ -255,7 +301,7 @@ export class SupabaseStorageImpl implements StorageInterface {
     supabase
       .from('attendants')
       .upsert({
-        id: attendant.id,
+        id: this.toValidUuid(attendant.id),
         name: attendant.name,
         is_active: attendant.isActive ?? true,
         created_at: attendant.createdAt || new Date().toISOString(),
@@ -263,6 +309,68 @@ export class SupabaseStorageImpl implements StorageInterface {
       .then(({ error }) => {
         if (error) console.error('Error updating attendant on Supabase:', error);
       });
+  }
+
+  async fetchAttendantsAsync(): Promise<Attendant[]> {
+    if (!isSupabaseConfigured()) return this.localFallback.getAttendants();
+    const supabase = getSupabaseClient();
+    if (!supabase) return this.localFallback.getAttendants();
+
+    const { data, error } = await supabase.from('attendants').select('*');
+    if (error || !data || data.length === 0) {
+      return this.localFallback.getAttendants();
+    }
+
+    const remoteAttendants: Attendant[] = data.map((r) => ({
+      id: r.id,
+      name: r.name,
+      isActive: Boolean(r.is_active),
+      createdAt: r.created_at || new Date().toISOString(),
+    }));
+
+    const currentLocal = this.localFallback.getAttendants();
+    const mergedMap = new Map<string, Attendant>();
+    currentLocal.forEach((a) => mergedMap.set(a.id, a));
+    remoteAttendants.forEach((a) => {
+      if (!mergedMap.has(a.id)) {
+        mergedMap.set(a.id, a);
+      }
+    });
+    const mergedList = Array.from(mergedMap.values());
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('controle_gelo_attendants', JSON.stringify(mergedList));
+    }
+    return mergedList;
+  }
+
+  async fetchSettingsAsync(): Promise<SystemSettings> {
+    const localData = this.localFallback.getSettings();
+    if (!isSupabaseConfigured()) return localData;
+    const supabase = getSupabaseClient();
+    if (!supabase) return localData;
+
+    const { data, error } = await supabase.from('settings').select('*').limit(1);
+    const row = Array.isArray(data) ? data[0] : data;
+    if (error || !row) {
+      return localData;
+    }
+
+    const remoteSettings: SystemSettings = {
+      ...localData,
+      defaultIceBagPrice: Number(row.default_ice_bag_price || 16.0),
+      initialStock: Number(row.initial_stock || 0),
+      adminPassword: row.admin_password || '102035',
+      pendingAdminPassword: row.pending_admin_password || undefined,
+      minimumStockAlert: Number(row.minimum_stock_alert || 15),
+      maxDiscountPercentage: Number(row.max_discount_percentage || 50),
+      maxBagsPerSale: Number(row.max_bags_per_sale || 100),
+    };
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('controle_gelo_settings', JSON.stringify(remoteSettings));
+    }
+    return remoteSettings;
   }
 
   getSettings(): SystemSettings {
@@ -275,19 +383,19 @@ export class SupabaseStorageImpl implements StorageInterface {
     supabase
       .from('settings')
       .select('*')
-      .eq('id', 'default')
-      .single()
+      .limit(1)
       .then(({ data, error }) => {
-        if (!error && data) {
+        const row = Array.isArray(data) ? data[0] : data;
+        if (!error && row) {
           const remoteSettings: SystemSettings = {
             ...localData,
-            defaultIceBagPrice: Number(data.default_ice_bag_price || 16.0),
-            initialStock: Number(data.initial_stock || 0),
-            adminPassword: data.admin_password || '102035',
-            pendingAdminPassword: data.pending_admin_password || undefined,
-            minimumStockAlert: Number(data.minimum_stock_alert || 15),
-            maxDiscountPercentage: Number(data.max_discount_percentage || 50),
-            maxBagsPerSale: Number(data.max_bags_per_sale || 100),
+            defaultIceBagPrice: Number(row.default_ice_bag_price || 16.0),
+            initialStock: Number(row.initial_stock || 0),
+            adminPassword: row.admin_password || '102035',
+            pendingAdminPassword: row.pending_admin_password || undefined,
+            minimumStockAlert: Number(row.minimum_stock_alert || 15),
+            maxDiscountPercentage: Number(row.max_discount_percentage || 50),
+            maxBagsPerSale: Number(row.max_bags_per_sale || 100),
           };
           if (typeof window !== 'undefined') {
             localStorage.setItem('controle_gelo_settings', JSON.stringify(remoteSettings));
@@ -305,10 +413,12 @@ export class SupabaseStorageImpl implements StorageInterface {
     const supabase = getSupabaseClient();
     if (!supabase) return;
 
+    const settingsId = '00000000-0000-0000-0000-000000000000';
+
     supabase
       .from('settings')
       .upsert({
-        id: 'default',
+        id: settingsId,
         default_ice_bag_price: settings.defaultIceBagPrice,
         initial_stock: settings.initialStock,
         admin_password: settings.adminPassword,
@@ -349,8 +459,9 @@ export class SupabaseStorageImpl implements StorageInterface {
       const localSettings = this.localFallback.getSettings();
 
       // 1. Sync Settings
+      const settingsId = '00000000-0000-0000-0000-000000000000';
       await supabase.from('settings').upsert({
-        id: 'default',
+        id: settingsId,
         default_ice_bag_price: localSettings.defaultIceBagPrice,
         initial_stock: localSettings.initialStock,
         admin_password: localSettings.adminPassword,
@@ -362,7 +473,7 @@ export class SupabaseStorageImpl implements StorageInterface {
       // 2. Sync Attendants
       if (localAttendants.length > 0) {
         const mappedAttendants = localAttendants.map((a) => ({
-          id: a.id,
+          id: this.toValidUuid(a.id),
           name: a.name,
           is_active: a.isActive ?? true,
           created_at: a.createdAt || new Date().toISOString(),

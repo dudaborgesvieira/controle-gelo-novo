@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS public.attendants (
 
 -- 3. Tabela de Configurações do Sistema
 CREATE TABLE IF NOT EXISTS public.settings (
-  id TEXT PRIMARY KEY DEFAULT 'default',
+  id TEXT PRIMARY KEY DEFAULT '00000000-0000-0000-0000-000000000000',
   default_ice_bag_price NUMERIC(10, 2) DEFAULT 16.00,
   initial_stock INTEGER DEFAULT 0,
   admin_password TEXT DEFAULT '102035',
@@ -83,5 +83,5 @@ CREATE POLICY "Permitir Acesso Completo Audit Logs" ON public.audit_logs FOR ALL
 
 -- Inserir configurações padrão caso a tabela esteja vazia
 INSERT INTO public.settings (id, default_ice_bag_price, initial_stock, admin_password, minimum_stock_alert, max_discount_percentage, max_bags_per_sale)
-VALUES ('default', 16.00, 0, '102035', 15, 50.00, 100)
+VALUES ('00000000-0000-0000-0000-000000000000', 16.00, 0, '102035', 15, 50.00, 100)
 ON CONFLICT (id) DO NOTHING;
