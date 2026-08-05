@@ -32,16 +32,15 @@ export class LocalStorageImpl implements StorageInterface {
   }
 
   getMovements(): Movement[] {
-    // If not client, return empty
-    if (!this.isClient()) return [];
-    // Seed database if empty
-    if (!localStorage.getItem(KEYS.MOVEMENTS)) {
-      const seeds = getSeedMovements();
-      this.setItem(KEYS.MOVEMENTS, seeds);
-      return seeds;
-    }
-    return this.getItem<Movement[]>(KEYS.MOVEMENTS, []);
+  if (!this.isClient()) return [];
+
+  if (!localStorage.getItem(KEYS.MOVEMENTS)) {
+    this.setItem(KEYS.MOVEMENTS, []);
+    return [];
   }
+
+  return this.getItem<Movement[]>(KEYS.MOVEMENTS, []);
+}
 
   saveMovement(movement: Movement): void {
     const movements = this.getMovements();
