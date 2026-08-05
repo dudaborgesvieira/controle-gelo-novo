@@ -113,23 +113,32 @@ export class SupabaseStorageImpl implements StorageInterface {
     };
   }
 
-  private mergeMovements(local: Movement[], remote: Movement[]): Movement[] {
-    const map = new Map<string, Movement>();
-    // Add remote movements
-    remote.forEach((m) => map.set(m.id, m));
-    // Overlay local movements so unsynced or updated local movements are preserved
-    local.forEach((m) => {
-      if (!map.has(m.id)) {
-        map.set(m.id, m);
-      } else {
-        const remoteM = map.get(m.id)!;
-        if (m.isCanceled || m.status === 'cancelado' || (m.timestamp && m.timestamp >= remoteM.timestamp)) {
-          map.set(m.id, m);
-        }
-      }
-    });
-    return Array.from(map.values()).sort((a, b) => (b.timestamp > a.timestamp ? 1 : -1));
-  }
+ private mergeMovements(local: Movement[], remote: Movement[]): Movement[] {
+  const map = new Map<string, Movement>();
+
+  remote.forEach((movement) => {
+    const normalizedId = this.toValidUuid(movement.id);
+    map.set(normalizedId, movement);
+  });
+
+  local.forEach((movement) => {
+    const normalizedId = this.toValidUuid(movement.id);
+    const remoteMovement = map.get(normalizedId);
+
+    if (
+      !remoteMovement ||
+      movement.isCanceled ||
+      movement.status === 'cancelado' ||
+      (movement.timestamp && movement.timestamp >= remoteMovement.timestamp)
+    ) {
+      map.set(normalizedId, movement);
+    }
+  });
+
+  return Array.from(map.values()).sort((a, b) =>
+    b.timestamp > a.timestamp ? 1 : -1
+  );
+}
 
   getMovements(): Movement[] {
     const localData = this.localFallback.getMovements();
