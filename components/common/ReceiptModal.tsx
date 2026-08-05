@@ -13,7 +13,7 @@ interface ReceiptModalProps {
 export default function ReceiptModal({ 
   movement, 
   onClose, 
-  autoPrint = true,
+  autoPrint = false,
   stationName = 'Auto Posto Tropical'
 }: ReceiptModalProps) {
   useEffect(() => {
