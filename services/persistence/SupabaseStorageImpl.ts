@@ -451,8 +451,33 @@ export class SupabaseStorageImpl implements StorageInterface {
   }
 
   resetAllData(): void {
-    this.localFallback.resetAllData();
-  }
+  this.localFallback.resetAllData();
+
+  if (!isSupabaseConfigured()) return;
+
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+
+  supabase
+    .from('movements')
+    .delete()
+    .neq('id', '00000000-0000-0000-0000-000000000000')
+    .then(({ error }) => {
+      if (error) {
+        console.error('Erro ao limpar movimentações:', error);
+      }
+    });
+
+  supabase
+    .from('settings')
+    .update({ initial_stock: 0 })
+    .eq('id', '00000000-0000-0000-0000-000000000000')
+    .then(({ error }) => {
+      if (error) {
+        console.error('Erro ao resetar configurações:', error);
+      }
+    });
+}
 
   // Push all existing local movements and attendants to Supabase on first connect
   async syncLocalDataToSupabase(): Promise<{ success: boolean; syncedCount: number }> {
