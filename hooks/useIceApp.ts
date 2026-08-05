@@ -360,8 +360,8 @@ export function useIceApp() {
   }, [movements]);
 
   // Action: Reset All Data to Zero (for tests)
-  const resetAllData = useCallback((): void => {
-    storageService.resetAllData();
+ const resetAllData = useCallback(async (): Promise<void> => {
+  await storageService.resetAllData();
     setMovements([]);
     setSettings({
       ...DEFAULT_SETTINGS,

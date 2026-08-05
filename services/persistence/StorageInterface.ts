@@ -16,7 +16,7 @@ export interface StorageInterface {
   saveSettings(settings: SystemSettings): void;
   
   // Backups, Reset and Local logs
-  resetAllData?(): void;
+  resetAllData?(): Promise<void> | void;
   getOfflineLogs(): any[];
   clearOfflineLogs(): void;
 }

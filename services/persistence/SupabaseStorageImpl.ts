@@ -450,7 +450,7 @@ export class SupabaseStorageImpl implements StorageInterface {
     this.localFallback.clearOfflineLogs();
   }
 
-  resetAllData(): void {
+ async resetAllData(): Promise<void> {
   this.localFallback.resetAllData();
 
   if (!isSupabaseConfigured()) return;
@@ -458,25 +458,25 @@ export class SupabaseStorageImpl implements StorageInterface {
   const supabase = getSupabaseClient();
   if (!supabase) return;
 
-  supabase
+  const { error: movementsError } = await supabase
     .from('movements')
     .delete()
-    .neq('id', '00000000-0000-0000-0000-000000000000')
-    .then(({ error }) => {
-      if (error) {
-        console.error('Erro ao limpar movimentações:', error);
-      }
-    });
+    .neq('id', '00000000-0000-0000-0000-000000000000');
 
-  supabase
+  if (movementsError) {
+    console.error('Erro ao limpar movimentações:', movementsError);
+    throw movementsError;
+  }
+
+  const { error: settingsError } = await supabase
     .from('settings')
     .update({ initial_stock: 0 })
-    .eq('id', '00000000-0000-0000-0000-000000000000')
-    .then(({ error }) => {
-      if (error) {
-        console.error('Erro ao resetar configurações:', error);
-      }
-    });
+    .eq('id', '00000000-0000-0000-0000-000000000000');
+
+  if (settingsError) {
+    console.error('Erro ao resetar configurações:', settingsError);
+    throw settingsError;
+  }
 }
 
   // Push all existing local movements and attendants to Supabase on first connect
