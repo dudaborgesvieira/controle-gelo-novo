@@ -16,17 +16,7 @@ export default function ReceiptModal({
   autoPrint = false,
   stationName = 'Auto Posto Tropical'
 }: ReceiptModalProps) {
-  useEffect(() => {
-    if (movement && autoPrint) {
-      const timer = setTimeout(() => {
-        if (typeof window !== 'undefined') {
-          window.print();
-        }
-      }, 350);
-      return () => clearTimeout(timer);
-    }
-  }, [movement, autoPrint]);
-
+  
   if (!movement) return null;
 
   const handlePrint = () => {
