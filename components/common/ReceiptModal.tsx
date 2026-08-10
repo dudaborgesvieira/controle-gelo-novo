@@ -232,7 +232,8 @@ export default function ReceiptModal({
             padding: 8px !important;
             background: #ffffff !important;
             color: #000000 !important;
-            font-family: 'Courier New', Courier, monospace !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-weight: 600 !important;
             font-size: 11px !important;
             line-height: 1.25 !important;
             box-shadow: none !important;
