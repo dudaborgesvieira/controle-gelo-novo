@@ -219,9 +219,18 @@ export default function ReceiptModal({
           body * {
             visibility: hidden !important;
           }
-          #thermal-receipt-printable, #thermal-receipt-printable * {
-            visibility: visible !important;
-          }
+          #thermal-receipt-printable,
+#thermal-receipt-printable * {
+  visibility: visible !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-weight: 700 !important;
+  color: #000000 !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+}
           #thermal-receipt-printable {
             position: fixed !important;
             left: 0 !important;
@@ -233,9 +242,9 @@ export default function ReceiptModal({
             background: #ffffff !important;
             color: #000000 !important;
             font-family: Arial, Helvetica, sans-serif !important;
-            font-weight: 600 !important;
+            font-weight: 700 !important;
             font-size: 11px !important;
-            line-height: 1.25 !important;
+            line-height: 1.35 !important;
             box-shadow: none !important;
             border: none !important;
             z-index: 999999 !important;
