@@ -240,45 +240,39 @@ export class SupabaseStorageImpl implements StorageInterface {
       });
   }
 
-  getAttendants(): Attendant[] {
-    const localData = this.localFallback.getAttendants();
-    if (!isSupabaseConfigured()) return localData;
+getAttendants(): Attendant[] {
+  const localData = this.localFallback.getAttendants();
 
-    const supabase = getSupabaseClient();
-    if (!supabase) return localData;
+  const uniqueActive = new Map<string, Attendant>();
 
-    supabase
-      .from('attendants')
-      .select('*')
-      .then(({ data, error }) => {
-        if (!error && data && data.length > 0) {
-          const remoteAttendants: Attendant[] = data.map((r) => ({
-            id: r.id,
-            name: r.name,
-            isActive: Boolean(r.is_active),
-            createdAt: r.created_at || new Date().toISOString(),
-          }));
-          
-          // Merge local and remote attendants so locally created ones are preserved
-          const currentLocal = this.localFallback.getAttendants();
-          const mergedMap = new Map<string, Attendant>();
-          currentLocal.forEach((a) => mergedMap.set(a.id, a));
-          remoteAttendants.forEach((a) => {
-            // Prefer local state if active, or remote
-            if (!mergedMap.has(a.id)) {
-              mergedMap.set(a.id, a);
-            }
-          });
-          const mergedList = Array.from(mergedMap.values());
+  localData
+    .filter((attendant) => attendant.isActive)
+    .forEach((attendant) => {
+      const normalizedName = attendant.name.trim().toLowerCase();
 
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('controle_gelo_attendants', JSON.stringify(mergedList));
-          }
-        }
-      });
+      if (!uniqueActive.has(normalizedName)) {
+        uniqueActive.set(normalizedName, attendant);
+      }
+    });
 
-    return localData;
+  const cleanLocalList = Array.from(uniqueActive.values());
+
+  if (!isSupabaseConfigured()) {
+    return cleanLocalList;
   }
+
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    return cleanLocalList;
+  }
+
+  this.fetchAttendantsAsync().catch((error) => {
+    console.error('Erro ao atualizar frentistas do Supabase:', error);
+  });
+
+  return cleanLocalList;
+}  
 
   saveAttendant(attendant: Attendant): void {
     this.localFallback.saveAttendant(attendant);
@@ -319,14 +313,18 @@ export class SupabaseStorageImpl implements StorageInterface {
         if (error) console.error('Error updating attendant on Supabase:', error);
       });
   }
-
   async fetchAttendantsAsync(): Promise<Attendant[]> {
-    if (!isSupabaseConfigured()) return this.localFallback.getAttendants();
+    if (!isSupabaseConfigured()) {
+      return this.localFallback.getAttendants();
+    }
+
     const supabase = getSupabaseClient();
-    if (!supabase) return this.localFallback.getAttendants();
+    if (!supabase) {
+      return this.localFallback.getAttendants();
+    }
 
     const { data, error } = await supabase.from('attendants').select('*');
-    if (error || !data || data.length === 0) {
+    if (error || !data) {
       return this.localFallback.getAttendants();
     }
 
@@ -337,25 +335,27 @@ export class SupabaseStorageImpl implements StorageInterface {
       createdAt: r.created_at || new Date().toISOString(),
     }));
 
-    const currentLocal = this.localFallback.getAttendants();
-    const mergedMap = new Map<string, Attendant>();
-    currentLocal.forEach((a) => mergedMap.set(a.id, a));
-    remoteAttendants.forEach((a) => {
-      if (!mergedMap.has(a.id)) {
-        mergedMap.set(a.id, a);
+    const uniqueByName = new Map<string, Attendant>();
+    remoteAttendants.forEach((attendant) => {
+      const normalizedName = attendant.name.trim().toLowerCase();
+      const existing = uniqueByName.get(normalizedName);
+      if (!existing || attendant.isActive) {
+        uniqueByName.set(normalizedName, attendant);
       }
     });
-    const mergedList = Array.from(mergedMap.values());
 
+    const cleanList = Array.from(uniqueByName.values());
     if (typeof window !== 'undefined') {
-      localStorage.setItem('controle_gelo_attendants', JSON.stringify(mergedList));
+      localStorage.setItem('controle_gelo_attendants', JSON.stringify(cleanList));
     }
-    return mergedList;
+
+    return cleanList;
   }
 
   async fetchSettingsAsync(): Promise<SystemSettings> {
     const localData = this.localFallback.getSettings();
     if (!isSupabaseConfigured()) return localData;
+
     const supabase = getSupabaseClient();
     if (!supabase) return localData;
 
@@ -379,6 +379,7 @@ export class SupabaseStorageImpl implements StorageInterface {
     if (typeof window !== 'undefined') {
       localStorage.setItem('controle_gelo_settings', JSON.stringify(remoteSettings));
     }
+
     return remoteSettings;
   }
 

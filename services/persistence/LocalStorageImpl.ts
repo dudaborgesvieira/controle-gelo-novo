@@ -71,29 +71,13 @@ export class LocalStorageImpl implements StorageInterface {
 
   getAttendants(): Attendant[] {
     if (!this.isClient()) return DEFAULT_ATTENDANTS;
+
     if (!localStorage.getItem(KEYS.ATTENDANTS)) {
       this.setItem(KEYS.ATTENDANTS, DEFAULT_ATTENDANTS);
       return DEFAULT_ATTENDANTS;
     }
-    const stored = this.getItem<Attendant[]>(KEYS.ATTENDANTS, []);
-    
-    // Auto-migration: Ensure all default attendants exist in stored list
-    let updated = false;
-    const existingNames = new Set(stored.map((a) => a.name.trim().toLowerCase()));
 
-    for (const defAtt of DEFAULT_ATTENDANTS) {
-      if (!existingNames.has(defAtt.name.trim().toLowerCase())) {
-        stored.push(defAtt);
-        existingNames.add(defAtt.name.trim().toLowerCase());
-        updated = true;
-      }
-    }
-
-    if (updated) {
-      this.setItem(KEYS.ATTENDANTS, stored);
-    }
-
-    return stored;
+    return this.getItem<Attendant[]>(KEYS.ATTENDANTS, []);
   }
 
   saveAttendant(attendant: Attendant): void {
