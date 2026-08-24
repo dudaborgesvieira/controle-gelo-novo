@@ -77,7 +77,15 @@ export class LocalStorageImpl implements StorageInterface {
       return DEFAULT_ATTENDANTS;
     }
 
-    return this.getItem<Attendant[]>(KEYS.ATTENDANTS, []);
+    const stored = this.getItem<Attendant[]>(KEYS.ATTENDANTS, []);
+    // Ensure Joao Bernardo is permanently removed from storage if previously present
+    const filtered = stored.filter(
+      (a) => a.id !== 'att-jb' && a.name.trim().toLowerCase() !== 'joão bernardo' && a.name.trim().toLowerCase() !== 'joao bernardo'
+    );
+    if (filtered.length !== stored.length) {
+      this.setItem(KEYS.ATTENDANTS, filtered);
+    }
+    return filtered;
   }
 
   saveAttendant(attendant: Attendant): void {
@@ -102,6 +110,13 @@ export class LocalStorageImpl implements StorageInterface {
       this.setItem(KEYS.ATTENDANTS, attendants);
       this.logOfflineOperation({ action: 'update', type: 'attendant', data: attendant });
     }
+  }
+
+  deleteAttendant(id: string): void {
+    const attendants = this.getAttendants();
+    const filtered = attendants.filter((a) => a.id !== id);
+    this.setItem(KEYS.ATTENDANTS, filtered);
+    this.logOfflineOperation({ action: 'delete', type: 'attendant', data: { id } });
   }
 
   getSettings(): SystemSettings {

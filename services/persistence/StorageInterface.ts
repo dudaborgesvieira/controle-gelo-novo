@@ -11,6 +11,7 @@ export interface StorageInterface {
   getAttendants(): Attendant[];
   saveAttendant(attendant: Attendant): void;
   updateAttendant(attendant: Attendant): void;
+  deleteAttendant(id: string): void;
   
   getSettings(): SystemSettings;
   saveSettings(settings: SystemSettings): void;

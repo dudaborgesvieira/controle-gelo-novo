@@ -8,13 +8,6 @@ export interface Attendant {
 
 export const DEFAULT_ATTENDANTS: Attendant[] = [
   {
-    id: 'att-jb',
-    name: 'João Bernardo',
-    avatarUrl: 'https://picsum.photos/seed/joao/100/100',
-    isActive: true,
-    createdAt: '2026-01-01T08:00:00Z',
-  },
-  {
     id: 'att-duda',
     name: 'Duda',
     avatarUrl: 'https://picsum.photos/seed/duda/100/100',

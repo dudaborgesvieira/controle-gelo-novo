@@ -36,6 +36,7 @@ export default function Home() {
     updateMovement,
     addAttendant,
     updateAttendant,
+    deleteAttendant,
     saveSettings,
     resetAllData,
     exportBackup,
@@ -871,6 +872,7 @@ export default function Home() {
               onUpdateSettings={saveSettings}
               onAddAttendant={addAttendant}
               onUpdateAttendant={updateAttendant}
+              onDeleteAttendant={deleteAttendant}
               onRemoveMovement={removeMovement}
               onCancelMovement={cancelMovement}
               onUncancelMovement={uncancelMovement}

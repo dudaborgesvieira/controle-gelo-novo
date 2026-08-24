@@ -25,6 +25,7 @@ interface AdminDashboardProps {
   onUpdateSettings: (settings: SystemSettings) => void;
   onAddAttendant: (name: string) => void;
   onUpdateAttendant: (attendant: Attendant) => void;
+  onDeleteAttendant?: (id: string) => void;
   onRemoveMovement: (id: string) => void;
   onCancelMovement?: (id: string, reason?: string) => { success: boolean; message: string };
   onUncancelMovement?: (id: string) => { success: boolean; message: string };
@@ -47,6 +48,7 @@ export default function AdminDashboard({
   onUpdateSettings,
   onAddAttendant,
   onUpdateAttendant,
+  onDeleteAttendant,
   onRemoveMovement,
   onCancelMovement,
   onUncancelMovement,
@@ -1823,25 +1825,45 @@ export default function AdminDashboard({
                       </div>
                     </div>
 
-                    {/* Active/Inactive Toggle */}
-                    <button
-                      id={`btn-toggle-attendant-${a.id}`}
-                      type="button"
-                      className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-all ${
-                        a.isActive 
-                          ? 'bg-emerald-100 text-emerald-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}
-                      onClick={() => {
-                        onUpdateAttendant({
-                          ...a,
-                          isActive: !a.isActive,
-                        });
-                        alert(`Frentista ${a.name} foi ${!a.isActive ? 'ATIVADO' : 'DESATIVADO'} com sucesso.`);
-                      }}
-                    >
-                      {a.isActive ? 'Ativo' : 'Inativo'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {/* Active/Inactive Toggle */}
+                      <button
+                        id={`btn-toggle-attendant-${a.id}`}
+                        type="button"
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-all ${
+                          a.isActive 
+                            ? 'bg-emerald-100 text-emerald-800' 
+                            : 'bg-red-100 text-red-800'
+                        }`}
+                        onClick={() => {
+                          onUpdateAttendant({
+                            ...a,
+                            isActive: !a.isActive,
+                          });
+                          alert(`Frentista ${a.name} foi ${!a.isActive ? 'ATIVADO' : 'DESATIVADO'} com sucesso.`);
+                        }}
+                      >
+                        {a.isActive ? 'Ativo' : 'Inativo'}
+                      </button>
+
+                      {/* Delete Button */}
+                      {onDeleteAttendant && (
+                        <button
+                          id={`btn-delete-attendant-${a.id}`}
+                          type="button"
+                          title="Excluir frentista"
+                          className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                          onClick={() => {
+                            if (window.confirm(`Deseja realmente excluir o cadastro do frentista "${a.name}"?`)) {
+                              onDeleteAttendant(a.id);
+                              alert(`Frentista "${a.name}" foi removido com sucesso.`);
+                            }
+                          }}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                      )}
+                    </div>
 
                   </div>
                 ))}

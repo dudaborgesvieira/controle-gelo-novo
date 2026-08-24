@@ -339,6 +339,18 @@ export function useIceApp() {
     }
   }, [activeAttendant, attendants]);
 
+  // Action: Delete / Remove Attendant
+  const deleteAttendant = useCallback((id: string): void => {
+    storageService.deleteAttendant(id);
+    setAttendants((prev) => prev.filter((a) => a.id !== id));
+
+    // If we deleted the active attendant, select another one
+    if (activeAttendant?.id === id) {
+      const remainingActive = attendants.filter((a) => a.id !== id && a.isActive);
+      setActiveAttendant(remainingActive.length > 0 ? remainingActive[0] : null);
+    }
+  }, [activeAttendant, attendants]);
+
   // Action: Update Settings
   const saveSettings = useCallback((newSettings: SystemSettings): void => {
     // When saving settings, user enters target stock in newSettings.initialStock.
@@ -542,6 +554,7 @@ export function useIceApp() {
     updateMovement,
     addAttendant,
     updateAttendant,
+    deleteAttendant,
     saveSettings,
     resetAllData,
     exportBackup,

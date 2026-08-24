@@ -313,6 +313,24 @@ getAttendants(): Attendant[] {
         if (error) console.error('Error updating attendant on Supabase:', error);
       });
   }
+
+  deleteAttendant(id: string): void {
+    this.localFallback.deleteAttendant(id);
+
+    if (!isSupabaseConfigured()) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    const uuid = this.toValidUuid(id);
+    supabase
+      .from('attendants')
+      .delete()
+      .eq('id', uuid)
+      .then(({ error }) => {
+        if (error) console.error('Error deleting attendant from Supabase:', error);
+      });
+  }
+
   async fetchAttendantsAsync(): Promise<Attendant[]> {
     if (!isSupabaseConfigured()) {
       return this.localFallback.getAttendants();
@@ -328,12 +346,26 @@ getAttendants(): Attendant[] {
       return this.localFallback.getAttendants();
     }
 
-    const remoteAttendants: Attendant[] = data.map((r) => ({
-      id: r.id,
-      name: r.name,
-      isActive: Boolean(r.is_active),
-      createdAt: r.created_at || new Date().toISOString(),
-    }));
+    // Filter out Joao Bernardo if present remotely and clean up from Supabase
+    const joaoBernardoRows = data.filter(
+      (r) => r.id === 'att-jb' || (r.name && (r.name.trim().toLowerCase() === 'joão bernardo' || r.name.trim().toLowerCase() === 'joao bernardo'))
+    );
+    if (joaoBernardoRows.length > 0) {
+      joaoBernardoRows.forEach((r) => {
+        supabase.from('attendants').delete().eq('id', r.id).then(() => {});
+      });
+    }
+
+    const remoteAttendants: Attendant[] = data
+      .filter(
+        (r) => r.id !== 'att-jb' && r.name && r.name.trim().toLowerCase() !== 'joão bernardo' && r.name.trim().toLowerCase() !== 'joao bernardo'
+      )
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        isActive: Boolean(r.is_active),
+        createdAt: r.created_at || new Date().toISOString(),
+      }));
 
     const uniqueByName = new Map<string, Attendant>();
     remoteAttendants.forEach((attendant) => {
