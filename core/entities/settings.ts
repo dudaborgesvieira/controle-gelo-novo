@@ -21,7 +21,9 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   gasStationName: 'Auto Posto Tropical',
   logoUrl: '',
   defaultIceBagPrice: 16.00, // R$ 16,00
-  initialStock: 100, // starting ice bags
+  // A instalação nova deve começar zerada. O estoque real vem do Supabase
+  // ou de uma entrada/ajuste explícito feito no sistema.
+  initialStock: 0,
   adminPassword: '102035', // standard numeric passcode requested by user
   requireAdminForDiscount: false,
   backupFrequency: 'diario',
