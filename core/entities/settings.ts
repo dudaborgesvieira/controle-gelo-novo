@@ -22,7 +22,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   logoUrl: '',
   defaultIceBagPrice: 16.00, // R$ 16,00
   // A instalação nova deve começar zerada. O estoque real vem do Supabase
-  // ou de uma entrada/ajuste explícito feito no sistema.
+  // ou de uma entrada/ajuste explícito feito no sistema. O Supabase é a fonte oficial.
   initialStock: 0,
   adminPassword: '102035', // standard numeric passcode requested by user
   requireAdminForDiscount: false,
