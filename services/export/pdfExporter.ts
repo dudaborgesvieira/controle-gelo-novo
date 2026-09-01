@@ -1,5 +1,14 @@
 import { Movement } from '../../core/entities/movement';
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 /**
  * Creates a print-friendly document representing the operations report and triggers the native browser print/save-to-pdf flow.
  */
@@ -30,11 +39,18 @@ export function exportToPDF(movements: Movement[], stats: {
 
   const rowsHTML = movements.map((m) => {
     const isCanceled = m.isCanceled || m.status === 'cancelado';
+    const safeId = escapeHtml(m.id);
+    const safeDate = escapeHtml(m.date);
+    const safeTime = escapeHtml(m.time);
+    const safeAttendantName = escapeHtml(m.attendantName);
+    const safeCourtesyRecipient = escapeHtml(m.courtesyRecipient);
+    const safeObservation = escapeHtml(m.observation);
+    const safeCancelReason = escapeHtml(m.cancelReason || 'Cancelamento solicitado no sistema');
 
     const detail = m.type === 'venda'
       ? `Pgto: ${m.paymentMethod === 'credito' ? 'C. Crédito' : m.paymentMethod === 'debito' ? 'C. Débito' : m.paymentMethod === 'pix' ? 'Pix Maq.' : m.paymentMethod === 'pix_cnpj' ? 'Pix CNPJ' : 'Dinheiro'}${m.discount ? ` (Desc: R$ ${m.discount.valorConcedido.toFixed(2)})` : ''}`
       : m.type === 'cortesia'
-      ? `Para: ${m.courtesyRecipient}`
+      ? `Para: ${safeCourtesyRecipient}`
       : m.type === 'perda'
       ? `Motivo: ${m.lossReason === 'saco_rasgado' ? 'Saco Rasgado' : m.lossReason === 'gelo_derretido' ? 'Gelo Derretido' : m.lossReason === 'embalagem_danificada' ? 'Emb. Danificada' : m.lossReason === 'queda' ? 'Queda' : 'Outro'}`
       : 'Produção de estoque';
@@ -44,7 +60,7 @@ export function exportToPDF(movements: Movement[], stats: {
       : 'R$ 0,00';
 
     const cancelNotice = isCanceled
-      ? `<br><strong style="color: #93000a; font-size: 11px;">[CANCELADO] Motivo: ${m.cancelReason || 'Cancelamento solicitado no sistema'}</strong>`
+      ? `<br><strong style="color: #93000a; font-size: 11px;">[CANCELADO] Motivo: ${safeCancelReason}</strong>`
       : '';
 
     const rowClass = isCanceled ? 'class="canceled-row"' : '';
@@ -54,13 +70,13 @@ export function exportToPDF(movements: Movement[], stats: {
 
     return `
       <tr ${rowClass}>
-        <td><strong>${m.id}</strong></td>
-        <td>${m.date} - ${m.time}</td>
-        <td>${m.attendantName}</td>
+        <td><strong>${safeId}</strong></td>
+        <td>${safeDate} - ${safeTime}</td>
+        <td>${safeAttendantName}</td>
         <td>${badgeHTML}</td>
         <td style="text-align: center; ${isCanceled ? 'text-decoration: line-through;' : ''}">${m.quantity}</td>
         <td style="${isCanceled ? 'text-decoration: line-through; color: #999;' : ''}">${value}</td>
-        <td><small>${detail} ${m.observation ? ` - Obs: ${m.observation}` : ''} ${cancelNotice}</small></td>
+        <td><small>${detail} ${m.observation ? ` - Obs: ${safeObservation}` : ''} ${cancelNotice}</small></td>
       </tr>
     `;
   }).join('');
