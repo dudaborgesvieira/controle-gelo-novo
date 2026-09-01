@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import LegacyAdminDashboard from './AdminDashboardLegacy';
 
 export default function AdminDashboard(props: React.ComponentProps<typeof LegacyAdminDashboard>) {
@@ -24,5 +24,20 @@ export default function AdminDashboard(props: React.ComponentProps<typeof Legacy
     return () => observer.disconnect();
   }, []);
 
-  return <LegacyAdminDashboard {...props} />;
+  const chartSafeMovements = useMemo(() => {
+    const activeMovements = props.movements.filter(
+      (movement) => !(movement.isCanceled || movement.status === 'cancelado')
+    );
+
+    const copy = [...props.movements];
+    Object.defineProperty(copy, 'forEach', {
+      configurable: true,
+      value: (callback: Parameters<typeof copy.forEach>[0], thisArg?: unknown) =>
+        activeMovements.forEach(callback, thisArg),
+    });
+
+    return copy;
+  }, [props.movements]);
+
+  return <LegacyAdminDashboard {...props} movements={chartSafeMovements} />;
 }
