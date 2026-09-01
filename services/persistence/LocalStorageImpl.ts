@@ -15,6 +15,18 @@ export class LocalStorageImpl implements StorageInterface {
     return typeof window !== 'undefined';
   }
 
+  private isUuid(value: string | null | undefined): boolean {
+    if (!value) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
+
+  private ensureMovementUuid(movement: Movement): Movement {
+    if (!this.isUuid(movement.id)) {
+      movement.id = crypto.randomUUID();
+    }
+    return movement;
+  }
+
   private getItem<T>(key: string, defaultValue: T): T {
     if (!this.isClient()) return defaultValue;
     const value = localStorage.getItem(key);
@@ -43,10 +55,14 @@ export class LocalStorageImpl implements StorageInterface {
   }
 
   saveMovement(movement: Movement): void {
+    // New movements may still arrive from older UI code with short IDs such as
+    // "mov-1234". Normalize them to a UUID before either local or Supabase
+    // persistence so two operations can never overwrite each other by ID.
+    const safeMovement = this.ensureMovementUuid(movement);
     const movements = this.getMovements();
-    movements.unshift(movement);
+    movements.unshift(safeMovement);
     this.setItem(KEYS.MOVEMENTS, movements);
-    this.logOfflineOperation({ action: 'create', type: 'movement', data: movement });
+    this.logOfflineOperation({ action: 'create', type: 'movement', data: safeMovement });
   }
 
   deleteMovement(id: string): void {
