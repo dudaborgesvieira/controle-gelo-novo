@@ -16,20 +16,20 @@ import { isSupabaseConfigured } from '../../lib/supabaseClient';
 export class SupabaseStorageImpl extends LegacySupabaseStorageImpl {
   private confirmedLocalStorage = new LocalStorageImpl();
 
-  private isUuid(value: string | null | undefined): boolean {
+  private isConfirmedUuid(value: string | null | undefined): boolean {
     if (!value) return false;
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
-  private ensureMovementUuid(movement: Movement): Movement {
-    if (!this.isUuid(movement.id)) {
+  private ensureConfirmedMovementUuid(movement: Movement): Movement {
+    if (!this.isConfirmedUuid(movement.id)) {
       movement.id = crypto.randomUUID();
     }
     return movement;
   }
 
   override saveMovement(movement: Movement): void {
-    const safeMovement = this.ensureMovementUuid(movement);
+    const safeMovement = this.ensureConfirmedMovementUuid(movement);
 
     if (!isSupabaseConfigured()) {
       const message = 'Não foi possível registrar a operação: Supabase não configurado.';
