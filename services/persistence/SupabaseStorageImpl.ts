@@ -113,33 +113,6 @@ export class SupabaseStorageImpl implements StorageInterface {
     };
   }
 
- private mergeMovements(local: Movement[], remote: Movement[]): Movement[] {
-  const map = new Map<string, Movement>();
-
-  remote.forEach((movement) => {
-    const normalizedId = this.toValidUuid(movement.id);
-    map.set(normalizedId, movement);
-  });
-
-  local.forEach((movement) => {
-    const normalizedId = this.toValidUuid(movement.id);
-    const remoteMovement = map.get(normalizedId);
-
-    if (
-      !remoteMovement ||
-      movement.isCanceled ||
-      movement.status === 'cancelado' ||
-      (movement.timestamp && movement.timestamp >= remoteMovement.timestamp)
-    ) {
-      map.set(normalizedId, movement);
-    }
-  });
-
-  return Array.from(map.values()).sort((a, b) =>
-    b.timestamp > a.timestamp ? 1 : -1
-  );
-}
-
   getMovements(): Movement[] {
     const localData = this.localFallback.getMovements();
     if (!isSupabaseConfigured()) return localData;
@@ -147,23 +120,20 @@ export class SupabaseStorageImpl implements StorageInterface {
     const supabase = getSupabaseClient();
     if (!supabase) return localData;
 
-    // Trigger async fetch & cache refresh
+    // Refresh the local cache from Supabase. A successful empty response
+    // is authoritative and must clear stale browser movements.
     supabase
       .from('movements')
       .select('*')
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
-        if (error) {
-          console.warn('Supabase movements sync note:', error.message || error);
+        if (error || !data) {
+          console.warn('Supabase movements sync note:', error?.message || error);
           return;
         }
-        if (data && data.length > 0) {
-          const remoteMovements = data.map((r) => this.mapDbToMovement(r));
-          const currentLocal = this.localFallback.getMovements();
-          const merged = this.mergeMovements(currentLocal, remoteMovements);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('controle_gelo_movements', JSON.stringify(merged));
-          }
+        const remoteMovements = data.map((r) => this.mapDbToMovement(r));
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('controle_gelo_movements', JSON.stringify(remoteMovements));
         }
       });
 
@@ -180,21 +150,20 @@ export class SupabaseStorageImpl implements StorageInterface {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (error || !data || data.length === 0) {
+    // Only fall back to local data when the remote read actually fails.
+    if (error || !data) {
+      console.warn('Supabase movements fetch note:', error?.message || error);
       return this.localFallback.getMovements();
     }
 
     const remoteMovements = data.map((r) => this.mapDbToMovement(r));
-    const currentLocal = this.localFallback.getMovements();
-    const merged = this.mergeMovements(currentLocal, remoteMovements);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('controle_gelo_movements', JSON.stringify(merged));
+      localStorage.setItem('controle_gelo_movements', JSON.stringify(remoteMovements));
     }
-    return merged;
+    return remoteMovements;
   }
 
   saveMovement(movement: Movement): void {
-    // Always persist locally
     this.localFallback.saveMovement(movement);
 
     if (!isSupabaseConfigured()) return;
@@ -346,7 +315,6 @@ getAttendants(): Attendant[] {
       return this.localFallback.getAttendants();
     }
 
-    // Filter out Joao Bernardo if present remotely and clean up from Supabase
     const joaoBernardoRows = data.filter(
       (r) => r.id === 'att-jb' || (r.name && (r.name.trim().toLowerCase() === 'joão bernardo' || r.name.trim().toLowerCase() === 'joao bernardo'))
     );
@@ -512,53 +480,11 @@ getAttendants(): Attendant[] {
   }
 }
 
-  // Push all existing local movements and attendants to Supabase on first connect
+  // Manual bulk upload is intentionally disabled. Individual writes are
+  // already sent to Supabase and stale browser history must never repopulate it.
   async syncLocalDataToSupabase(): Promise<{ success: boolean; syncedCount: number }> {
-    if (!isSupabaseConfigured()) {
-      return { success: false, syncedCount: 0 };
-    }
-    const supabase = getSupabaseClient();
-    if (!supabase) return { success: false, syncedCount: 0 };
-
-    try {
-      const localMovements = this.localFallback.getMovements();
-      const localAttendants = this.localFallback.getAttendants();
-      const localSettings = this.localFallback.getSettings();
-
-      // 1. Sync Settings
-      const settingsId = '00000000-0000-0000-0000-000000000000';
-      await supabase.from('settings').upsert({
-        id: settingsId,
-        default_ice_bag_price: localSettings.defaultIceBagPrice,
-        initial_stock: localSettings.initialStock,
-        admin_password: localSettings.adminPassword,
-        minimum_stock_alert: localSettings.minimumStockAlert,
-        max_discount_percentage: localSettings.maxDiscountPercentage,
-        max_bags_per_sale: localSettings.maxBagsPerSale,
-      });
-
-      // 2. Sync Attendants
-      if (localAttendants.length > 0) {
-        const mappedAttendants = localAttendants.map((a) => ({
-          id: this.toValidUuid(a.id),
-          name: a.name,
-          is_active: a.isActive ?? true,
-          created_at: a.createdAt || new Date().toISOString(),
-        }));
-        await supabase.from('attendants').upsert(mappedAttendants);
-      }
-
-      // 3. Sync Movements
-      if (localMovements.length > 0) {
-        const mappedMovements = localMovements.map((m) => this.mapMovementToDb(m));
-        await supabase.from('movements').upsert(mappedMovements);
-      }
-
-      return { success: true, syncedCount: localMovements.length };
-    } catch (err) {
-      console.error('Error in syncLocalDataToSupabase:', err);
-      return { success: false, syncedCount: 0 };
-    }
+    console.warn('Bulk local-to-Supabase sync is disabled to protect remote data.');
+    return { success: false, syncedCount: 0 };
   }
 }
 
