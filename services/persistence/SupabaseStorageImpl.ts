@@ -1,490 +1,110 @@
-import { StorageInterface } from './StorageInterface';
+import { SupabaseStorageImpl as LegacySupabaseStorageImpl } from './SupabaseStorageLegacy';
 import { LocalStorageImpl } from './LocalStorageImpl';
 import { Movement } from '../../core/entities/movement';
-import { Attendant } from '../../core/entities/attendant';
-import { SystemSettings } from '../../core/entities/settings';
-import { getSupabaseClient, isSupabaseConfigured } from '../../lib/supabaseClient';
+import { isSupabaseConfigured } from '../../lib/supabaseClient';
 
-export class SupabaseStorageImpl implements StorageInterface {
-  private localFallback = new LocalStorageImpl();
+/**
+ * Production persistence layer.
+ *
+ * Movement creation is deliberately confirmed by Supabase before it is
+ * accepted into the browser cache. This prevents the UI from reporting a
+ * successful sale/production/courtesy/loss when the remote write failed.
+ *
+ * The remaining persistence behaviour stays in the legacy implementation
+ * while the app is migrated incrementally to fully async writes.
+ */
+export class SupabaseStorageImpl extends LegacySupabaseStorageImpl {
+  private confirmedLocalStorage = new LocalStorageImpl();
 
-  private isUuid(val: string | null | undefined): boolean {
-    if (!val || val === 'default') return false;
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(val);
+  private isUuid(value: string | null | undefined): boolean {
+    if (!value) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
-  private stringToUuid(str: string): string {
-    if (!str || str === 'default') return crypto.randomUUID();
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = (hash << 5) - hash + str.charCodeAt(i);
-      hash |= 0;
+  private ensureMovementUuid(movement: Movement): Movement {
+    if (!this.isUuid(movement.id)) {
+      movement.id = crypto.randomUUID();
     }
-    let hex = '';
-    for (let i = 0; i < str.length; i++) {
-      hex += str.charCodeAt(i).toString(16);
-    }
-    hex = (hex + Math.abs(hash).toString(16).repeat(8) + '0123456789abcdef').slice(0, 32);
-    const part1 = hex.slice(0, 8);
-    const part2 = hex.slice(8, 12);
-    const part3 = '4' + hex.slice(13, 16);
-    const part4 = 'a' + hex.slice(17, 20);
-    const part5 = hex.slice(20, 32);
-    return `${part1}-${part2}-${part3}-${part4}-${part5}`;
+    return movement;
   }
 
-  private toValidUuidOrNull(val: string | null | undefined): string | null {
-    if (!val || val === 'default' || val.trim() === '' || val === 'null' || val === 'undefined') {
-      return null;
-    }
-    if (this.isUuid(val)) {
-      return val;
-    }
-    return this.stringToUuid(val);
-  }
+  override saveMovement(movement: Movement): void {
+    const safeMovement = this.ensureMovementUuid(movement);
 
-  private toValidUuid(val: string | null | undefined): string {
-    if (!val || val === 'default' || val.trim() === '' || val === 'null' || val === 'undefined') {
-      return crypto.randomUUID();
-    }
-    if (this.isUuid(val)) {
-      return val;
-    }
-    return this.stringToUuid(val);
-  }
-
-  private mapMovementToDb(m: Movement) {
-    return {
-      id: this.toValidUuid(m.id),
-      type: m.type,
-      quantity: m.quantity,
-      unit_price: m.unitPrice ?? 0,
-      total_price: m.totalPrice ?? 0,
-      attendant_id: this.toValidUuidOrNull(m.attendantId),
-      attendant_name: m.attendantName,
-      date: m.date,
-      time: m.time,
-      payment_method: m.paymentMethod || null,
-      discount: m.discount ? JSON.stringify(m.discount) : null,
-      loss_reason: m.lossReason || null,
-      courtesy_recipient: m.courtesyRecipient || null,
-      observation: m.observation || null,
-      is_canceled: Boolean(m.isCanceled || m.status === 'cancelado'),
-      status: m.status || (m.isCanceled ? 'cancelado' : 'ativo'),
-      canceled_at: m.canceledAt || null,
-      canceled_by: this.toValidUuidOrNull(m.canceledBy),
-      cancel_reason: m.cancelReason || null,
-      created_at: m.timestamp || new Date().toISOString(),
-    };
-  }
-
-  private mapDbToMovement(row: any): Movement {
-    let discountObj = undefined;
-    if (row.discount) {
-      try {
-        discountObj = typeof row.discount === 'string' ? JSON.parse(row.discount) : row.discount;
-      } catch {
-        discountObj = undefined;
-      }
-    }
-
-    return {
-      id: row.id,
-      timestamp: row.created_at || new Date().toISOString(),
-      type: row.type,
-      quantity: Number(row.quantity),
-      unitPrice: Number(row.unit_price || 0),
-      totalPrice: Number(row.total_price || 0),
-      attendantId: row.attendant_id || '',
-      attendantName: row.attendant_name,
-      date: row.date,
-      time: row.time,
-      paymentMethod: row.payment_method || undefined,
-      discount: discountObj,
-      lossReason: row.loss_reason || undefined,
-      courtesyRecipient: row.courtesy_recipient || undefined,
-      observation: row.observation || undefined,
-      isCanceled: Boolean(row.is_canceled || row.status === 'cancelado'),
-      status: row.status || (row.is_canceled ? 'cancelado' : 'ativo'),
-      canceledAt: row.canceled_at || undefined,
-      canceledBy: row.canceled_by || undefined,
-      cancelReason: row.cancel_reason || undefined,
-    };
-  }
-
-  getMovements(): Movement[] {
-    const localData = this.localFallback.getMovements();
-    if (!isSupabaseConfigured()) return localData;
-
-    const supabase = getSupabaseClient();
-    if (!supabase) return localData;
-
-    // Refresh the local cache from Supabase. A successful empty response
-    // is authoritative and must clear stale browser movements.
-    supabase
-      .from('movements')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error || !data) {
-          console.warn('Supabase movements sync note:', error?.message || error);
-          return;
-        }
-        const remoteMovements = data.map((r) => this.mapDbToMovement(r));
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('controle_gelo_movements', JSON.stringify(remoteMovements));
-        }
-      });
-
-    return localData;
-  }
-
-  async fetchMovementsAsync(): Promise<Movement[]> {
-    if (!isSupabaseConfigured()) return this.localFallback.getMovements();
-    const supabase = getSupabaseClient();
-    if (!supabase) return this.localFallback.getMovements();
-
-    const { data, error } = await supabase
-      .from('movements')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    // Only fall back to local data when the remote read actually fails.
-    if (error || !data) {
-      console.warn('Supabase movements fetch note:', error?.message || error);
-      return this.localFallback.getMovements();
-    }
-
-    const remoteMovements = data.map((r) => this.mapDbToMovement(r));
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('controle_gelo_movements', JSON.stringify(remoteMovements));
-    }
-    return remoteMovements;
-  }
-
-  saveMovement(movement: Movement): void {
-    this.localFallback.saveMovement(movement);
-
-    if (!isSupabaseConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    supabase
-      .from('movements')
-      .upsert(this.mapMovementToDb(movement))
-      .then(({ error }) => {
-        if (error) console.error('Error saving movement to Supabase:', error);
-      });
-  }
-
-  deleteMovement(id: string): void {
-    this.localFallback.deleteMovement(id);
-
-    if (!isSupabaseConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    supabase
-      .from('movements')
-      .delete()
-      .eq('id', id)
-      .then(({ error }) => {
-        if (error) console.error('Error deleting movement from Supabase:', error);
-      });
-  }
-
-  updateMovement(movement: Movement): void {
-    this.localFallback.updateMovement(movement);
-
-    if (!isSupabaseConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    supabase
-      .from('movements')
-      .upsert(this.mapMovementToDb(movement))
-      .then(({ error }) => {
-        if (error) console.error('Error updating movement on Supabase:', error);
-      });
-  }
-
-getAttendants(): Attendant[] {
-  const localData = this.localFallback.getAttendants();
-
-  const uniqueActive = new Map<string, Attendant>();
-
-  localData
-    .filter((attendant) => attendant.isActive)
-    .forEach((attendant) => {
-      const normalizedName = attendant.name.trim().toLowerCase();
-
-      if (!uniqueActive.has(normalizedName)) {
-        uniqueActive.set(normalizedName, attendant);
-      }
-    });
-
-  const cleanLocalList = Array.from(uniqueActive.values());
-
-  if (!isSupabaseConfigured()) {
-    return cleanLocalList;
-  }
-
-  const supabase = getSupabaseClient();
-
-  if (!supabase) {
-    return cleanLocalList;
-  }
-
-  this.fetchAttendantsAsync().catch((error) => {
-    console.error('Erro ao atualizar frentistas do Supabase:', error);
-  });
-
-  return cleanLocalList;
-}  
-
-  saveAttendant(attendant: Attendant): void {
-    this.localFallback.saveAttendant(attendant);
-
-    if (!isSupabaseConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    supabase
-      .from('attendants')
-      .upsert({
-        id: this.toValidUuid(attendant.id),
-        name: attendant.name,
-        is_active: attendant.isActive ?? true,
-        created_at: attendant.createdAt || new Date().toISOString(),
-      })
-      .then(({ error }) => {
-        if (error) console.error('Error saving attendant to Supabase:', error);
-      });
-  }
-
-  updateAttendant(attendant: Attendant): void {
-    this.localFallback.updateAttendant(attendant);
-
-    if (!isSupabaseConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    supabase
-      .from('attendants')
-      .upsert({
-        id: this.toValidUuid(attendant.id),
-        name: attendant.name,
-        is_active: attendant.isActive ?? true,
-        created_at: attendant.createdAt || new Date().toISOString(),
-      })
-      .then(({ error }) => {
-        if (error) console.error('Error updating attendant on Supabase:', error);
-      });
-  }
-
-  deleteAttendant(id: string): void {
-    this.localFallback.deleteAttendant(id);
-
-    if (!isSupabaseConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    const uuid = this.toValidUuid(id);
-    supabase
-      .from('attendants')
-      .delete()
-      .eq('id', uuid)
-      .then(({ error }) => {
-        if (error) console.error('Error deleting attendant from Supabase:', error);
-      });
-  }
-
-  async fetchAttendantsAsync(): Promise<Attendant[]> {
     if (!isSupabaseConfigured()) {
-      return this.localFallback.getAttendants();
+      const message = 'Não foi possível registrar a operação: Supabase não configurado.';
+      if (typeof window !== 'undefined') window.alert(message);
+      throw new Error(message);
     }
 
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      return this.localFallback.getAttendants();
+    if (typeof window === 'undefined') {
+      throw new Error('A gravação confirmada de movimentações deve ocorrer no navegador.');
     }
 
-    const { data, error } = await supabase.from('attendants').select('*');
-    if (error || !data) {
-      return this.localFallback.getAttendants();
+    if (!navigator.onLine) {
+      const message = 'Sem conexão com a internet. A operação NÃO foi registrada. Tente novamente quando a conexão voltar.';
+      window.alert(message);
+      throw new Error(message);
     }
 
-    const joaoBernardoRows = data.filter(
-      (r) => r.id === 'att-jb' || (r.name && (r.name.trim().toLowerCase() === 'joão bernardo' || r.name.trim().toLowerCase() === 'joao bernardo'))
-    );
-    if (joaoBernardoRows.length > 0) {
-      joaoBernardoRows.forEach((r) => {
-        supabase.from('attendants').delete().eq('id', r.id).then(() => {});
-      });
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!url || !key) {
+      const message = 'Não foi possível registrar a operação: configuração do Supabase indisponível.';
+      window.alert(message);
+      throw new Error(message);
     }
 
-    const remoteAttendants: Attendant[] = data
-      .filter(
-        (r) => r.id !== 'att-jb' && r.name && r.name.trim().toLowerCase() !== 'joão bernardo' && r.name.trim().toLowerCase() !== 'joao bernardo'
-      )
-      .map((r) => ({
-        id: r.id,
-        name: r.name,
-        isActive: Boolean(r.is_active),
-        createdAt: r.created_at || new Date().toISOString(),
-      }));
-
-    const uniqueByName = new Map<string, Attendant>();
-    remoteAttendants.forEach((attendant) => {
-      const normalizedName = attendant.name.trim().toLowerCase();
-      const existing = uniqueByName.get(normalizedName);
-      if (!existing || attendant.isActive) {
-        uniqueByName.set(normalizedName, attendant);
-      }
-    });
-
-    const cleanList = Array.from(uniqueByName.values());
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('controle_gelo_attendants', JSON.stringify(cleanList));
-    }
-
-    return cleanList;
-  }
-
-  async fetchSettingsAsync(): Promise<SystemSettings> {
-    const localData = this.localFallback.getSettings();
-    if (!isSupabaseConfigured()) return localData;
-
-    const supabase = getSupabaseClient();
-    if (!supabase) return localData;
-
-    const { data, error } = await supabase.from('settings').select('*').limit(1);
-    const row = Array.isArray(data) ? data[0] : data;
-    if (error || !row) {
-      return localData;
-    }
-
-    const remoteSettings: SystemSettings = {
-      ...localData,
-      defaultIceBagPrice: Number(row.default_ice_bag_price || 16.0),
-      initialStock: Number(row.initial_stock || 0),
-      adminPassword: row.admin_password || '102035',
-      pendingAdminPassword: row.pending_admin_password || undefined,
-      minimumStockAlert: Number(row.minimum_stock_alert || 15),
-      maxDiscountPercentage: Number(row.max_discount_percentage || 50),
-      maxBagsPerSale: Number(row.max_bags_per_sale || 100),
+    const payload = {
+      id: safeMovement.id,
+      type: safeMovement.type,
+      quantity: safeMovement.quantity,
+      unit_price: safeMovement.unitPrice ?? 0,
+      total_price: safeMovement.totalPrice ?? 0,
+      attendant_id: safeMovement.attendantId || null,
+      attendant_name: safeMovement.attendantName,
+      date: safeMovement.date,
+      time: safeMovement.time,
+      payment_method: safeMovement.paymentMethod || null,
+      discount: safeMovement.discount || null,
+      loss_reason: safeMovement.lossReason || null,
+      courtesy_recipient: safeMovement.courtesyRecipient || null,
+      observation: safeMovement.observation || null,
+      is_canceled: Boolean(safeMovement.isCanceled || safeMovement.status === 'cancelado'),
+      status: safeMovement.status || (safeMovement.isCanceled ? 'cancelado' : 'ativo'),
+      canceled_at: safeMovement.canceledAt || null,
+      canceled_by: safeMovement.canceledBy || null,
+      cancel_reason: safeMovement.cancelReason || null,
+      created_at: safeMovement.timestamp || new Date().toISOString(),
     };
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('controle_gelo_settings', JSON.stringify(remoteSettings));
+    try {
+      // A synchronous request is intentional here: the existing UI is still
+      // synchronous. Returning only after PostgREST answers guarantees that the
+      // current UI cannot display success before Supabase confirms the insert.
+      const request = new XMLHttpRequest();
+      request.open('POST', `${url}/rest/v1/movements?on_conflict=id`, false);
+      request.setRequestHeader('apikey', key);
+      request.setRequestHeader('Authorization', `Bearer ${key}`);
+      request.setRequestHeader('Content-Type', 'application/json');
+      request.setRequestHeader('Prefer', 'resolution=merge-duplicates,return=minimal');
+      request.send(JSON.stringify(payload));
+
+      if (request.status < 200 || request.status >= 300) {
+        const detail = request.responseText ? ` (${request.responseText.slice(0, 180)})` : '';
+        throw new Error(`Supabase respondeu HTTP ${request.status}${detail}`);
+      }
+
+      // Only after the remote confirmation do we update the browser cache.
+      this.confirmedLocalStorage.saveMovement(safeMovement);
+    } catch (error: any) {
+      const detail = error?.message || 'falha desconhecida';
+      const message = `A operação NÃO foi registrada no Supabase. Nenhuma baixa foi confirmada. Detalhe: ${detail}`;
+      console.error(message, error);
+      window.alert(message);
+      throw error instanceof Error ? error : new Error(message);
     }
-
-    return remoteSettings;
-  }
-
-  getSettings(): SystemSettings {
-    const localData = this.localFallback.getSettings();
-    if (!isSupabaseConfigured()) return localData;
-
-    const supabase = getSupabaseClient();
-    if (!supabase) return localData;
-
-    supabase
-      .from('settings')
-      .select('*')
-      .limit(1)
-      .then(({ data, error }) => {
-        const row = Array.isArray(data) ? data[0] : data;
-        if (!error && row) {
-          const remoteSettings: SystemSettings = {
-            ...localData,
-            defaultIceBagPrice: Number(row.default_ice_bag_price || 16.0),
-            initialStock: Number(row.initial_stock || 0),
-            adminPassword: row.admin_password || '102035',
-            pendingAdminPassword: row.pending_admin_password || undefined,
-            minimumStockAlert: Number(row.minimum_stock_alert || 15),
-            maxDiscountPercentage: Number(row.max_discount_percentage || 50),
-            maxBagsPerSale: Number(row.max_bags_per_sale || 100),
-          };
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('controle_gelo_settings', JSON.stringify(remoteSettings));
-          }
-        }
-      });
-
-    return localData;
-  }
-
-  saveSettings(settings: SystemSettings): void {
-    this.localFallback.saveSettings(settings);
-
-    if (!isSupabaseConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    const settingsId = '00000000-0000-0000-0000-000000000000';
-
-    supabase
-      .from('settings')
-      .upsert({
-        id: settingsId,
-        default_ice_bag_price: settings.defaultIceBagPrice,
-        initial_stock: settings.initialStock,
-        admin_password: settings.adminPassword,
-        pending_admin_password: settings.pendingAdminPassword || null,
-        minimum_stock_alert: settings.minimumStockAlert,
-        max_discount_percentage: settings.maxDiscountPercentage,
-        max_bags_per_sale: settings.maxBagsPerSale,
-        updated_at: new Date().toISOString(),
-      })
-      .then(({ error }) => {
-        if (error) console.error('Error saving settings to Supabase:', error);
-      });
-  }
-
-  getOfflineLogs(): any[] {
-    return this.localFallback.getOfflineLogs();
-  }
-
-  clearOfflineLogs(): void {
-    this.localFallback.clearOfflineLogs();
-  }
-
- async resetAllData(): Promise<void> {
-  this.localFallback.resetAllData();
-
-  if (!isSupabaseConfigured()) return;
-
-  const supabase = getSupabaseClient();
-  if (!supabase) return;
-
-  const { error: movementsError } = await supabase
-    .from('movements')
-    .delete()
-    .neq('id', '00000000-0000-0000-0000-000000000000');
-
-  if (movementsError) {
-    console.error('Erro ao limpar movimentações:', movementsError);
-    throw movementsError;
-  }
-
-  const { error: settingsError } = await supabase
-    .from('settings')
-    .update({ initial_stock: 0 })
-    .eq('id', '00000000-0000-0000-0000-000000000000');
-
-  if (settingsError) {
-    console.error('Erro ao resetar configurações:', settingsError);
-    throw settingsError;
-  }
-}
-
-  // Manual bulk upload is intentionally disabled. Individual writes are
-  // already sent to Supabase and stale browser history must never repopulate it.
-  async syncLocalDataToSupabase(): Promise<{ success: boolean; syncedCount: number }> {
-    console.warn('Bulk local-to-Supabase sync is disabled to protect remote data.');
-    return { success: false, syncedCount: 0 };
   }
 }
 
