@@ -5,7 +5,7 @@ import LegacyAdminDashboard from './AdminDashboardLegacy';
 
 export default function AdminDashboard(props: React.ComponentProps<typeof LegacyAdminDashboard>) {
   useEffect(() => {
-    const hideBackupUi = () => {
+    const hideDeprecatedUi = () => {
       const exportButton = document.getElementById('btn-settings-export-backup');
       const backupCard = exportButton?.parentElement?.parentElement;
       if (backupCard instanceof HTMLElement) backupCard.style.display = 'none';
@@ -16,10 +16,13 @@ export default function AdminDashboard(props: React.ComponentProps<typeof Legacy
 
       const localBackupModal = document.getElementById('local-db-modal-overlay');
       if (localBackupModal instanceof HTMLElement) localBackupModal.style.display = 'none';
+
+      const syncButton = document.getElementById('btn-settings-sync-supabase');
+      if (syncButton instanceof HTMLElement) syncButton.style.display = 'none';
     };
 
-    hideBackupUi();
-    const observer = new MutationObserver(hideBackupUi);
+    hideDeprecatedUi();
+    const observer = new MutationObserver(hideDeprecatedUi);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
