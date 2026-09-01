@@ -1,5 +1,5 @@
 import { StorageInterface } from './StorageInterface';
-import { Movement, getSeedMovements } from '../../core/entities/movement';
+import { Movement } from '../../core/entities/movement';
 import { Attendant, DEFAULT_ATTENDANTS } from '../../core/entities/attendant';
 import { SystemSettings, DEFAULT_SETTINGS } from '../../core/entities/settings';
 
@@ -32,22 +32,20 @@ export class LocalStorageImpl implements StorageInterface {
   }
 
   getMovements(): Movement[] {
-  if (!this.isClient()) return [];
+    if (!this.isClient()) return [];
 
-  if (!localStorage.getItem(KEYS.MOVEMENTS)) {
-    this.setItem(KEYS.MOVEMENTS, []);
-    return [];
+    if (!localStorage.getItem(KEYS.MOVEMENTS)) {
+      this.setItem(KEYS.MOVEMENTS, []);
+      return [];
+    }
+
+    return this.getItem<Movement[]>(KEYS.MOVEMENTS, []);
   }
-
-  return this.getItem<Movement[]>(KEYS.MOVEMENTS, []);
-}
 
   saveMovement(movement: Movement): void {
     const movements = this.getMovements();
-    movements.unshift(movement); // Newest first
+    movements.unshift(movement);
     this.setItem(KEYS.MOVEMENTS, movements);
-    
-    // Add to offline queue
     this.logOfflineOperation({ action: 'create', type: 'movement', data: movement });
   }
 
@@ -55,7 +53,6 @@ export class LocalStorageImpl implements StorageInterface {
     const movements = this.getMovements();
     const updated = movements.filter((m) => m.id !== id);
     this.setItem(KEYS.MOVEMENTS, updated);
-    
     this.logOfflineOperation({ action: 'delete', type: 'movement', data: { id } });
   }
 
@@ -78,7 +75,6 @@ export class LocalStorageImpl implements StorageInterface {
     }
 
     const stored = this.getItem<Attendant[]>(KEYS.ATTENDANTS, []);
-    // Ensure Joao Bernardo is permanently removed from storage if previously present
     const filtered = stored.filter(
       (a) => a.id !== 'att-jb' && a.name.trim().toLowerCase() !== 'joão bernardo' && a.name.trim().toLowerCase() !== 'joao bernardo'
     );
@@ -133,10 +129,8 @@ export class LocalStorageImpl implements StorageInterface {
       updated = true;
     }
 
-    // Migration: enforce '102035' password if they have an old or unconfigured password
     if (!stored.adminPassword || stored.adminPassword !== '102035') {
       stored.adminPassword = '102035';
-      // Also clear any pending passwords to avoid confusion
       stored.pendingAdminPassword = undefined;
       updated = true;
     }
@@ -157,7 +151,6 @@ export class LocalStorageImpl implements StorageInterface {
     this.logOfflineOperation({ action: 'update', type: 'settings', data: settings });
   }
 
-  // Offline logs for Firebase readiness
   getOfflineLogs(): any[] {
     return this.getItem<any[]>(KEYS.OFFLINE_LOGS, []);
   }
@@ -186,4 +179,5 @@ export class LocalStorageImpl implements StorageInterface {
     this.setItem(KEYS.OFFLINE_LOGS, logs);
   }
 }
+
 export const storageService = new LocalStorageImpl();
