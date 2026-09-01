@@ -1,5 +1,3 @@
-import { supabaseStorageService } from '../persistence/SupabaseStorageImpl';
-
 export type ConnectionState = 'online' | 'offline';
 
 export class SyncEngine {
@@ -10,7 +8,7 @@ export class SyncEngine {
   constructor() {
     if (typeof window !== 'undefined') {
       this.connectionState = navigator.onLine ? 'online' : 'offline';
-      
+
       window.addEventListener('online', () => this.handleConnectionChange('online'));
       window.addEventListener('offline', () => this.handleConnectionChange('offline'));
     }
@@ -26,9 +24,8 @@ export class SyncEngine {
 
   public subscribe(callback: (state: ConnectionState, syncing: boolean) => void): () => void {
     this.listeners.push(callback);
-    // Initial call
     callback(this.connectionState, this.isSyncing);
-    
+
     return () => {
       this.listeners = this.listeners.filter((l) => l !== callback);
     };
@@ -46,23 +43,17 @@ export class SyncEngine {
   public triggerAutoSync(): void {
     if (this.connectionState === 'offline' || this.isSyncing) return;
 
+    // Individual writes are already sent directly to Supabase by
+    // SupabaseStorageImpl. Do not bulk-upload the browser's local cache here:
+    // stale local history could recreate records that were intentionally
+    // deleted/reset in Supabase.
     this.isSyncing = true;
     this.notify();
 
-    // Perform synchronization with Supabase and local storage
-    supabaseStorageService
-      .syncLocalDataToSupabase()
-      .then(() => {
-        setTimeout(() => {
-          this.isSyncing = false;
-          this.notify();
-        }, 800);
-      })
-      .catch((err) => {
-        console.error('Auto sync error:', err);
-        this.isSyncing = false;
-        this.notify();
-      });
+    setTimeout(() => {
+      this.isSyncing = false;
+      this.notify();
+    }, 300);
   }
 
   private notify(): void {
