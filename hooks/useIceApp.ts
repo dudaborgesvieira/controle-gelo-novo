@@ -37,7 +37,9 @@ export function useIceApp() {
         storageService.fetchAttendantsAsync(),
         storageService.fetchSettingsAsync(),
       ]);
-      if (mList && mList.length > 0) setMovements(mList);
+      // An empty list from Supabase is a valid authoritative state and must
+      // clear any stale movements already loaded in the browser.
+      setMovements(mList || []);
       if (aList && aList.length > 0) {
         setAttendants(aList);
         setActiveAttendant((prev) => {
