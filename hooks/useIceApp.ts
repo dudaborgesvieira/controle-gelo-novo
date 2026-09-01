@@ -37,19 +37,20 @@ export function useIceApp() {
         storageService.fetchAttendantsAsync(),
         storageService.fetchSettingsAsync(),
       ]);
-      // Empty lists from Supabase are valid authoritative states and must
-      // clear stale movements/attendants already loaded in the browser.
+      // An empty list from Supabase is a valid authoritative state and must
+      // clear any stale movements already loaded in the browser.
       setMovements(mList || []);
-      const remoteAttendants = aList || [];
-      setAttendants(remoteAttendants);
-      setActiveAttendant((prev) => {
-        if (prev) {
-          const found = remoteAttendants.find((a) => a.id === prev.id);
-          if (found) return found;
-        }
-        const activeOnes = remoteAttendants.filter((a) => a.isActive);
-        return activeOnes.length > 0 ? activeOnes[0] : null;
-      });
+      if (aList && aList.length > 0) {
+        setAttendants(aList);
+        setActiveAttendant((prev) => {
+          if (prev) {
+            const found = aList.find((a) => a.id === prev.id);
+            if (found) return found;
+          }
+          const activeOnes = aList.filter((a) => a.isActive);
+          return activeOnes.length > 0 ? activeOnes[0] : null;
+        });
+      }
       if (sData) setSettings(sData);
     } catch (e) {
       console.warn('Realtime refresh note:', e);
@@ -382,19 +383,146 @@ export function useIceApp() {
     });
     const defaultAtts = storageService.getAttendants();
     setAttendants(defaultAtts);
-    const activeOnes = defaultAtts.filter((a) => a.isActive);
+    const activeOnes = defaultAtts.filter(a => a.isActive);
     setActiveAttendant(activeOnes.length > 0 ? activeOnes[0] : null);
   }, []);
 
-  // Backup helpers
-  const exportBackup = useCallback(() => {
-    exportDatabaseBackupToFile();
-    setLastBackupTime(getLastBackupTimestamp());
+  // Filter Active Attendants for selection lists
+  const activeAttendants = useMemo(() => {
+    return attendants.filter(a => a.isActive);
+  }, [attendants]);
+
+  // Compute dashboards statistics (Vendas de hoje, faturamento, cortesias, etc.)
+  const dashboardStats = useMemo(() => {
+    const today = getLocalDateString();
+    
+    let salesValueToday = 0;
+    let salesVolumeToday = 0;
+    let courtesyCountToday = 0;
+    let lossCountToday = 0;
+    let productionCountToday = 0;
+    let salesCountToday = 0;
+    let discountGrantedToday = 0;
+    let canceledCountToday = 0;
+    let canceledValueToday = 0;
+
+    let totalFinancialSales = 0;
+    let totalSalesVolume = 0;
+    let totalLossCount = 0;
+    let totalProductionCount = 0;
+    let totalCourtesyCount = 0;
+    let totalCanceledCount = 0;
+    let totalCanceledValue = 0;
+
+    // payment methods aggregates
+    const paymentMethodsStats: Record<string, { value: number; count: number }> = {
+      credito: { value: 0, count: 0 },
+      debito: { value: 0, count: 0 },
+      pix: { value: 0, count: 0 },
+      pix_cnpj: { value: 0, count: 0 },
+      dinheiro: { value: 0, count: 0 },
+    };
+
+    // Attendant rank aggregates
+    const attendantRanking: Record<string, { name: string; sales: number; quantity: number }> = {};
+
+    movements.forEach((m) => {
+      const isToday = isSameLocalDate(m.date, m.timestamp, today);
+      const isCanceled = m.isCanceled || m.status === 'cancelado';
+
+      if (isCanceled) {
+        const val = m.totalPrice || 0;
+        if (isToday) {
+          canceledCountToday++;
+          canceledValueToday += val;
+        }
+        totalCanceledCount++;
+        totalCanceledValue += val;
+        return; // Exclude canceled items from active statistics
+      }
+
+      if (m.type === 'venda') {
+        const val = m.totalPrice || 0;
+        const qty = m.quantity || 0;
+        const disc = m.discount?.valorConcedido || 0;
+        
+        totalFinancialSales += val;
+        totalSalesVolume += qty;
+
+        if (isToday) {
+          salesValueToday += val;
+          salesVolumeToday += qty;
+          salesCountToday++;
+          discountGrantedToday += disc;
+        }
+
+        // Methods
+        if (m.paymentMethod && paymentMethodsStats[m.paymentMethod]) {
+          paymentMethodsStats[m.paymentMethod].value += val;
+          paymentMethodsStats[m.paymentMethod].count += qty;
+        }
+
+        // Rank
+        if (!attendantRanking[m.attendantId]) {
+          attendantRanking[m.attendantId] = { name: m.attendantName, sales: 0, quantity: 0 };
+        }
+        attendantRanking[m.attendantId].sales += val;
+        attendantRanking[m.attendantId].quantity += qty;
+      } else if (m.type === 'cortesia') {
+        if (isToday) courtesyCountToday += m.quantity;
+        totalCourtesyCount += m.quantity;
+      } else if (m.type === 'perda') {
+        if (isToday) lossCountToday += m.quantity;
+        totalLossCount += m.quantity;
+      } else if (m.type === 'producao') {
+        if (isToday) productionCountToday += m.quantity;
+        totalProductionCount += m.quantity;
+      }
+    });
+
+    const rankingArray = Object.values(attendantRanking).sort((a, b) => b.sales - a.sales);
+
+    return {
+      currentStock: stockResult.currentStock,
+      today: {
+        salesValue: salesValueToday,
+        salesVolume: salesVolumeToday,
+        courtesyVolume: courtesyCountToday,
+        lossVolume: lossCountToday,
+        productionVolume: productionCountToday,
+        salesCount: salesCountToday,
+        discountGranted: discountGrantedToday,
+        canceledCount: canceledCountToday,
+        canceledValue: canceledValueToday,
+        courtesyFinancialValue: courtesyCountToday * (settings?.defaultIceBagPrice || 10),
+      },
+      totals: {
+        salesValue: totalFinancialSales,
+        salesVolume: totalSalesVolume,
+        lossVolume: totalLossCount,
+        productionVolume: totalProductionCount,
+        courtesyVolume: totalCourtesyCount,
+        canceledCount: totalCanceledCount,
+        canceledValue: totalCanceledValue,
+      },
+      paymentMethods: paymentMethodsStats,
+      attendantRanking: rankingArray,
+    };
+  }, [movements, stockResult.currentStock, settings]);
+
+  // Backup operations
+  const exportBackup = useCallback(async () => {
+    const result = await exportDatabaseBackupToFile();
+    if (result.success) {
+      setLastBackupTime(getLastBackupTimestamp());
+    }
+    return result;
   }, []);
 
-  const importBackup = useCallback(async (file: File): Promise<{ success: boolean; message: string }> => {
+  const importBackup = useCallback(async (file: File) => {
     const result = await importDatabaseBackupFromFile(file);
     if (result.success) {
+      // Refresh state from storage
       setMovements(storageService.getMovements());
       setAttendants(storageService.getAttendants());
       setSettings(storageService.getSettings());
@@ -403,29 +531,23 @@ export function useIceApp() {
     return result;
   }, []);
 
-  // Derived helpers
-  const activeAttendants = useMemo(() => attendants.filter((a) => a.isActive), [attendants]);
-
-  const todayMovements = useMemo(() => {
-    return movements.filter((m) => isSameLocalDate(m.date, getLocalDateString()));
-  }, [movements]);
-
   return {
     movements,
     attendants,
     activeAttendants,
     settings,
-    stockResult,
-    inconsistencyAlert,
-    activeAttendant,
-    setActiveAttendant,
-    isAdminLoggedIn,
-    setIsAdminLoggedIn,
+    currentStock: stockResult.currentStock,
     connectionState,
     isSyncing,
     isSupabaseActive,
     lastBackupTime,
-    todayMovements,
+    activeAttendant,
+    setActiveAttendant,
+    isAdminLoggedIn,
+    setIsAdminLoggedIn,
+    inconsistencyAlert,
+    
+    // Operations
     registerMovement,
     registerAdminMovement,
     removeMovement,
@@ -439,6 +561,10 @@ export function useIceApp() {
     resetAllData,
     exportBackup,
     importBackup,
-    refreshRemoteData,
+    
+    // Aggregates
+    dashboardStats,
   };
+
 }
+export type IceAppHook = ReturnType<typeof useIceApp>;
