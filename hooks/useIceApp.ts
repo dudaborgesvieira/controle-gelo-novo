@@ -62,14 +62,16 @@ export function useIceApp() {
     const timer = setTimeout(() => {
       setIsSupabaseActive(isSupabaseConfigured());
 
-      // Load initial local/cached data first for immediate rendering
-      const loadedMovements = storageService.getMovements();
+      // In online mode, Supabase is authoritative for movements and settings.
+      // Never render cached stock while a remote refresh is pending.
+      const remoteConfigured = isSupabaseConfigured();
+      const loadedMovements = remoteConfigured ? [] : storageService.getMovements();
       const loadedAttendants = storageService.getAttendants();
-      const loadedSettings = storageService.getSettings();
+      const loadedSettings = remoteConfigured ? DEFAULT_SETTINGS : storageService.getSettings();
 
-      setMovements(loadedMovements);
+      if (!remoteConfigured) setMovements(loadedMovements);
       setAttendants(loadedAttendants);
-      setSettings(loadedSettings);
+      if (!remoteConfigured) setSettings(loadedSettings);
       setLastBackupTime(getLastBackupTimestamp());
 
       // Set first active attendant if available
