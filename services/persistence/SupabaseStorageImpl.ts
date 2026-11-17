@@ -84,11 +84,11 @@ export class SupabaseStorageImpl extends LegacySupabaseStorageImpl {
       // synchronous. Returning only after PostgREST answers guarantees that the
       // current UI cannot display success before Supabase confirms the insert.
       const request = new XMLHttpRequest();
-      request.open('POST', `${url}/rest/v1/movements?on_conflict=id`, false);
+      request.open('POST', `${url}/rest/v1/movements`, false);
       request.setRequestHeader('apikey', key);
       request.setRequestHeader('Authorization', `Bearer ${key}`);
       request.setRequestHeader('Content-Type', 'application/json');
-      request.setRequestHeader('Prefer', 'resolution=merge-duplicates,return=minimal');
+      request.setRequestHeader('Prefer', 'return=minimal');
       request.send(JSON.stringify(payload));
 
       if (request.status < 200 || request.status >= 300) {
@@ -106,6 +106,54 @@ export class SupabaseStorageImpl extends LegacySupabaseStorageImpl {
       throw error instanceof Error ? error : new Error(message);
     }
   }
+  // Corrections and cancellations must also be confirmed by the server before
+  // the UI updates its local stock. Never upsert a missing movement on edit.
+  override updateMovement(movement: Movement): void {
+    if (!isSupabaseConfigured() || typeof window === 'undefined' || !navigator.onLine) {
+      throw new Error('Sem conexão com o banco de dados. Alteração não realizada.');
+    }
+    if (!this.isConfirmedUuid(movement.id)) {
+      throw new Error('Identificador inválido. Alteração não realizada.');
+    }
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !key) throw new Error('Configuração do banco indisponível.');
+
+    const payload = {
+      type: movement.type,
+      quantity: movement.quantity,
+      unit_price: movement.unitPrice ?? 0,
+      total_price: movement.totalPrice ?? 0,
+      attendant_name: movement.attendantName,
+      date: movement.date,
+      time: movement.time,
+      payment_method: movement.paymentMethod || null,
+      discount: movement.discount || null,
+      loss_reason: movement.lossReason || null,
+      courtesy_recipient: movement.courtesyRecipient || null,
+      observation: movement.observation || null,
+      is_canceled: Boolean(movement.isCanceled || movement.status === 'cancelado'),
+      status: movement.status || (movement.isCanceled ? 'cancelado' : 'ativo'),
+      canceled_at: movement.canceledAt || null,
+      cancel_reason: movement.cancelReason || null,
+    };
+    const request = new XMLHttpRequest();
+    request.open('PATCH', `${url}/rest/v1/movements?id=eq.${encodeURIComponent(movement.id)}`, false);
+    request.setRequestHeader('apikey', key);
+    request.setRequestHeader('Authorization', `Bearer ${key}`);
+    request.setRequestHeader('Content-Type', 'application/json');
+    request.setRequestHeader('Prefer', 'return=representation');
+    request.send(JSON.stringify(payload));
+    if (request.status < 200 || request.status >= 300) {
+      throw new Error(`Banco não confirmou a alteração (HTTP ${request.status}).`);
+    }
+    const rows = JSON.parse(request.responseText || '[]');
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      throw new Error('Registro não encontrado no banco. Alteração não realizada.');
+    }
+    this.confirmedLocalStorage.updateMovement(movement);
+  }
+
 }
 
 export const supabaseStorageService = new SupabaseStorageImpl();
